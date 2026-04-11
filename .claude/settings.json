@@ -1,0 +1,36 @@
+{
+  "model": "claude-sonnet-4-5-20250929",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash(swift *)",
+      "Bash(./build.sh *)",
+      "Bash(./build.sh)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(mkdir *)",
+      "Bash(codesign *)",
+      "Bash(xattr *)"
+    ],
+    "deny": [
+      "Write(.env*)",
+      "Bash(rm -rf *)",
+      "Bash(git push *)",
+      "Bash(git reset --hard *)"
+    ]
+  },
+  "env": {
+    "PROJECT_NAME": "EdgePad",
+    "SWIFT_VERSION": "6.0",
+    "MACOS_DEPLOYMENT_TARGET": "13.0"
+  }
+}
