@@ -1,14 +1,14 @@
 // swift-tools-version: 6.0
 // EdgePad — turn your MacBook trackpad edges into system controls.
 //
-// This SPM manifest declares one executable target (EdgePad) that depends on
-// Kyome22/OpenMultitouchSupport for raw multitouch capture. Build with:
+// We initially depended on Kyome22/OpenMultitouchSupport but had to drop
+// it because OMS uses MTDeviceCreateDefault() which picks an auxiliary
+// sensor (60×2) on modern Apple Silicon MacBooks instead of the real
+// trackpad. We now bind to MultitouchSupport.framework directly via
+// dlopen in Sources/MultitouchCapture.swift, enumerate all devices, and
+// pick the one with a real sensor grid.
 //
-//     swift build -c release            # produces .build/release/EdgePad
-//     ./build.sh                        # wraps the binary into EdgePad.app
-//
-// The actual .app bundling (Info.plist, ad-hoc code signing, icon) is handled
-// by build.sh. swift build alone gives you a raw Mach-O binary.
+// No external dependencies — pure Swift + system frameworks.
 
 import PackageDescription
 
@@ -20,20 +20,9 @@ let package = Package(
     products: [
         .executable(name: "EdgePad", targets: ["EdgePad"]),
     ],
-    dependencies: [
-        // Raw multitouch capture via private MultitouchSupport.framework.
-        // MIT licensed, Swift 6 concurrency-friendly, maintained.
-        .package(
-            url: "https://github.com/Kyome22/OpenMultitouchSupport.git",
-            from: "3.0.3"
-        ),
-    ],
     targets: [
         .executableTarget(
             name: "EdgePad",
-            dependencies: [
-                .product(name: "OpenMultitouchSupport", package: "OpenMultitouchSupport"),
-            ],
             path: "Sources",
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
