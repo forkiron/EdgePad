@@ -1,9 +1,12 @@
-// main.swift — scaffolding stub.
+// main.swift — app entry point.
 //
-// Placeholder entry point while we build out the project structure.
-// The real NSApplication wiring lands in the next commit once the
-// AppDelegate and its dependencies exist.
+// EdgePad runs as a menu-bar-only NSApplication (LSUIElement in
+// Info.plist). AppDelegate wires everything together; this file exists
+// purely to bootstrap the NSApp instance.
 
-import Foundation
+import AppKit
 
-print("EdgePad scaffold — no app wired up yet")
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.run()
