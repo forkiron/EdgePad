@@ -128,10 +128,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         menu.addItem(header)
         menu.addItem(.separator())
 
-        // -- Sensitivity (AirPods-style: slider + chevron dropdown) --
+        // -- Sensitivity --
         let sensSection = NSMenuItem()
         sensSection.view = MenuSectionView(title: "Sensitivity", menuWidth: w)
         menu.addItem(sensSection)
+
+        // Detail slider items (always in menu, toggled via isHidden)
+        var detailItems: [NSMenuItem] = []
 
         let sensView = SensitivityDropdownView(
             value: sensitivityMultiplier,
@@ -149,34 +152,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         sensView.onChevronTapped = { [weak self] in
             guard let self else { return }
             self.sensitivityExpanded.toggle()
-            self.refreshMenu()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                self.statusItem.button?.performClick(nil)
-            }
+            sensView.setExpanded(self.sensitivityExpanded)
+            for item in detailItems { item.isHidden = !self.sensitivityExpanded }
         }
         let sensItem = NSMenuItem()
         sensItem.view = sensView
         menu.addItem(sensItem)
 
-        if sensitivityExpanded {
-            addSlider(menu, "Scroll", min: 200, max: 2000,
-                      value: scroll.horizontalSensitivity, width: w, indent: true) { [weak self] val in
-                self?.scroll.horizontalSensitivity = val
-                self?.scroll.verticalSensitivity = val
-            }
-            addSlider(menu, "Volume", min: 0.3, max: 3.0,
-                      value: volume.sensitivity, width: w, indent: true) { [weak self] val in
-                self?.volume.sensitivity = val
-            }
-            addSlider(menu, "Brightness", min: 0.3, max: 3.0,
-                      value: brightness.sensitivity, width: w, indent: true) { [weak self] val in
-                self?.brightness.sensitivity = val
-            }
-            addSlider(menu, "Scrub", min: 0.02, max: 0.15,
-                      value: media.stepSize, width: w, indent: true) { [weak self] val in
-                self?.media.stepSize = val
-            }
-        }
+        // Individual sliders — always present, hidden by default
+        detailItems.append(makeSlider(menu, "Scroll", min: 200, max: 2000,
+                  value: scroll.horizontalSensitivity, width: w, indent: true) { [weak self] val in
+            self?.scroll.horizontalSensitivity = val
+            self?.scroll.verticalSensitivity = val
+        })
+        detailItems.append(makeSlider(menu, "Volume", min: 0.3, max: 3.0,
+                  value: volume.sensitivity, width: w, indent: true) { [weak self] val in
+            self?.volume.sensitivity = val
+        })
+        detailItems.append(makeSlider(menu, "Brightness", min: 0.3, max: 3.0,
+                  value: brightness.sensitivity, width: w, indent: true) { [weak self] val in
+            self?.brightness.sensitivity = val
+        })
+        detailItems.append(makeSlider(menu, "Scrub", min: 0.02, max: 0.15,
+                  value: media.stepSize, width: w, indent: true) { [weak self] val in
+            self?.media.stepSize = val
+        })
+        for item in detailItems { item.isHidden = !sensitivityExpanded }
 
         menu.addItem(.separator())
 
@@ -250,15 +251,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         statusItem.menu = menu
     }
 
-    private func addSlider(_ menu: NSMenu, _ title: String, min: Float, max: Float,
-                           value: Float, width: CGFloat, indent: Bool = false,
-                           onChange: @escaping (Float) -> Void) {
+    @discardableResult
+    private func makeSlider(_ menu: NSMenu, _ title: String, min: Float, max: Float,
+                            value: Float, width: CGFloat, indent: Bool = false,
+                            onChange: @escaping (Float) -> Void) -> NSMenuItem {
         let view = MenuSliderView(title: title, min: min, max: max, value: value,
                                   menuWidth: width, indent: indent)
         view.onValueChanged = onChange
         let item = NSMenuItem()
         item.view = view
         menu.addItem(item)
+        return item
     }
 
     // MARK: - Actions

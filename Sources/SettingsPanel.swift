@@ -57,13 +57,13 @@ final class MenuSliderView: NSView {
     }
 }
 
-// MARK: - Sensitivity row with AirPods-style chevron dropdown
+// MARK: - Sensitivity row with chevron dropdown (like AirPods Max)
 
 final class SensitivityDropdownView: NSView {
 
     private let slider = NSSlider()
     private let chevronBg = NSView()
-    private let chevronLabel = NSTextField(labelWithString: "")
+    private let chevronImage = NSImageView()
     private let hoverBg = NSView()
     var onValueChanged: ((Float) -> Void)?
     var onChevronTapped: (() -> Void)?
@@ -74,13 +74,13 @@ final class SensitivityDropdownView: NSView {
         isExpanded = expanded
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 32))
 
-        // Hover bg for whole row
+        // Hover bg
         hoverBg.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 28)
         hoverBg.wantsLayer = true
         hoverBg.layer?.cornerRadius = 5
         addSubview(hoverBg)
 
-        // Slider (no label, centered)
+        // Slider centered, no label
         slider.minValue = 0.3
         slider.maxValue = 2.5
         slider.doubleValue = Double(value)
@@ -88,33 +88,42 @@ final class SensitivityDropdownView: NSView {
         slider.isContinuous = true
         slider.target = self
         slider.action = #selector(sliderChanged(_:))
-        slider.frame = NSRect(x: 16, y: 6, width: menuWidth - 64, height: 20)
+        slider.frame = NSRect(x: 16, y: 6, width: menuWidth - 62, height: 20)
         slider.trackFillColor = .systemBlue
         addSubview(slider)
 
-        // Chevron circle (like AirPods Max)
-        let circleSize: CGFloat = 22
-        let circleX = menuWidth - circleSize - 12
-        let circleY = (32 - circleSize) / 2
-        chevronBg.frame = NSRect(x: circleX, y: circleY, width: circleSize, height: circleSize)
+        // Chevron circle
+        let sz: CGFloat = 22
+        let cx = menuWidth - sz - 10
+        let cy = (32 - sz) / 2
+        chevronBg.frame = NSRect(x: cx, y: cy, width: sz, height: sz)
         chevronBg.wantsLayer = true
-        chevronBg.layer?.cornerRadius = circleSize / 2
+        chevronBg.layer?.cornerRadius = sz / 2
         chevronBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
         addSubview(chevronBg)
 
-        chevronLabel.stringValue = expanded ? "\u{2303}" : "\u{2304}"  // ⌃ or ⌄
-        chevronLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        chevronLabel.textColor = .secondaryLabelColor
-        chevronLabel.alignment = .center
-        chevronLabel.isBezeled = false
-        chevronLabel.drawsBackground = false
-        chevronLabel.isEditable = false
-        chevronLabel.isSelectable = false
-        chevronLabel.frame = NSRect(x: circleX, y: circleY, width: circleSize, height: circleSize)
-        addSubview(chevronLabel)
+        // SF Symbol chevron
+        let symbolName = expanded ? "chevron.up" : "chevron.down"
+        let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        chevronImage.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config)
+        chevronImage.contentTintColor = .secondaryLabelColor
+        chevronImage.frame = NSRect(x: cx + 4, y: cy + 4, width: sz - 8, height: sz - 8)
+        addSubview(chevronImage)
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    func setExpanded(_ expanded: Bool) {
+        isExpanded = expanded
+        let name = expanded ? "chevron.up" : "chevron.down"
+        let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            chevronImage.animator().image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                .withSymbolConfiguration(config)
+        }
+    }
 
     override func updateTrackingAreas() {
         if let ta = trackingArea { removeTrackingArea(ta) }
@@ -124,7 +133,7 @@ final class SensitivityDropdownView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         hoverBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.06).cgColor
-        chevronBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.15).cgColor
+        chevronBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.18).cgColor
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -134,7 +143,6 @@ final class SensitivityDropdownView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         let loc = convert(event.locationInWindow, from: nil)
-        // Click on chevron area (right 44px)
         if loc.x > bounds.width - 44 {
             onChevronTapped?()
         }
@@ -156,28 +164,18 @@ final class MenuEdgeSliderView: NSView {
     init(value: Float, menuWidth: CGFloat = 280) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
 
-        let title = NSTextField(labelWithString: "Width")
-        title.font = .systemFont(ofSize: 13)
-        title.textColor = .labelColor
-        title.isBezeled = false
-        title.drawsBackground = false
-        title.isEditable = false
-        title.isSelectable = false
-        title.frame = NSRect(x: 20, y: 4, width: 50, height: 20)
-        addSubview(title)
-
         slider.minValue = 5
         slider.maxValue = 25
         slider.doubleValue = Double(value * 100)
-        slider.controlSize = .small
+        slider.controlSize = .regular
         slider.isContinuous = true
         slider.target = self
         slider.action = #selector(changed(_:))
-        slider.frame = NSRect(x: 76, y: 6, width: menuWidth - 136, height: 16)
+        slider.frame = NSRect(x: 16, y: 5, width: menuWidth - 72, height: 18)
         slider.trackFillColor = .systemBlue
         addSubview(slider)
 
-        pctLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        pctLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         pctLabel.textColor = .secondaryLabelColor
         pctLabel.alignment = .right
         pctLabel.isBezeled = false
@@ -185,7 +183,7 @@ final class MenuEdgeSliderView: NSView {
         pctLabel.isEditable = false
         pctLabel.isSelectable = false
         pctLabel.stringValue = "\(Int(value * 100))%"
-        pctLabel.frame = NSRect(x: menuWidth - 52, y: 4, width: 36, height: 20)
+        pctLabel.frame = NSRect(x: menuWidth - 52, y: 5, width: 36, height: 18)
         addSubview(pctLabel)
     }
 
