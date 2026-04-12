@@ -1,31 +1,35 @@
 // SettingsPanel.swift
 //
-// Custom NSView-based menu items for inline settings — no separate window.
-// Sliders and trackpad preview live directly in the menu dropdown.
+// Custom NSView-based menu items — inline settings in the dropdown.
 
 import AppKit
 
-// MARK: - Slider row (label + slider in a menu item)
+// MARK: - Slider row
 
 final class MenuSliderView: NSView {
 
-    private let titleLabel = NSTextField(labelWithString: "")
     private let slider = NSSlider()
     var onValueChanged: ((Float) -> Void)?
 
-    init(title: String, min: Float, max: Float, value: Float, menuWidth: CGFloat = 280) {
+    init(title: String, min: Float, max: Float, value: Float,
+         menuWidth: CGFloat = 280, darkBg: Bool = false) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 30))
+        if darkBg {
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
+        }
 
-        titleLabel.stringValue = title
-        titleLabel.font = .systemFont(ofSize: 13)
-        titleLabel.textColor = .labelColor
-        titleLabel.isBezeled = false
-        titleLabel.drawsBackground = false
-        titleLabel.isEditable = false
-        titleLabel.isSelectable = false
-        titleLabel.frame = NSRect(x: 20, y: 5, width: 76, height: 20)
-        addSubview(titleLabel)
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 13)
+        label.textColor = darkBg ? .secondaryLabelColor : .labelColor
+        label.isBezeled = false
+        label.drawsBackground = false
+        label.isEditable = false
+        label.isSelectable = false
+        label.frame = NSRect(x: darkBg ? 32 : 20, y: 5, width: 76, height: 20)
+        addSubview(label)
 
+        let sliderX: CGFloat = darkBg ? 110 : 100
         slider.minValue = Double(min)
         slider.maxValue = Double(max)
         slider.doubleValue = Double(value)
@@ -33,7 +37,7 @@ final class MenuSliderView: NSView {
         slider.isContinuous = true
         slider.target = self
         slider.action = #selector(changed(_:))
-        slider.frame = NSRect(x: 100, y: 7, width: menuWidth - 120, height: 16)
+        slider.frame = NSRect(x: sliderX, y: 7, width: menuWidth - sliderX - 16, height: 16)
         slider.trackFillColor = .controlAccentColor
         addSubview(slider)
     }
@@ -42,6 +46,75 @@ final class MenuSliderView: NSView {
 
     @objc private func changed(_ sender: NSSlider) {
         onValueChanged?(Float(sender.doubleValue))
+    }
+}
+
+// MARK: - Overall sensitivity with disclosure arrow
+
+final class SensitivityHeaderView: NSView {
+
+    private let slider = NSSlider()
+    private let arrowLabel = NSTextField(labelWithString: "")
+    var onValueChanged: ((Float) -> Void)?
+    var onDisclosureTapped: (() -> Void)?
+    var isExpanded = false {
+        didSet { arrowLabel.stringValue = isExpanded ? "\u{25BE}" : "\u{25B8}" }
+    }
+
+    init(value: Float, expanded: Bool, menuWidth: CGFloat = 280) {
+        super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 30))
+        isExpanded = expanded
+
+        let label = NSTextField(labelWithString: "Overall")
+        label.font = .systemFont(ofSize: 13)
+        label.textColor = .labelColor
+        label.isBezeled = false
+        label.drawsBackground = false
+        label.isEditable = false
+        label.isSelectable = false
+        label.frame = NSRect(x: 20, y: 5, width: 60, height: 20)
+        addSubview(label)
+
+        slider.minValue = 0.3
+        slider.maxValue = 2.5
+        slider.doubleValue = Double(value)
+        slider.controlSize = .small
+        slider.isContinuous = true
+        slider.target = self
+        slider.action = #selector(sliderChanged(_:))
+        slider.frame = NSRect(x: 86, y: 7, width: menuWidth - 126, height: 16)
+        slider.trackFillColor = .controlAccentColor
+        addSubview(slider)
+
+        // Disclosure arrow button
+        arrowLabel.stringValue = expanded ? "\u{25BE}" : "\u{25B8}"
+        arrowLabel.font = .systemFont(ofSize: 11)
+        arrowLabel.textColor = .tertiaryLabelColor
+        arrowLabel.alignment = .center
+        arrowLabel.isBezeled = false
+        arrowLabel.drawsBackground = false
+        arrowLabel.isEditable = false
+        arrowLabel.isSelectable = false
+        arrowLabel.frame = NSRect(x: menuWidth - 28, y: 5, width: 20, height: 20)
+        addSubview(arrowLabel)
+
+        let clickArea = NSButton(frame: NSRect(x: menuWidth - 36, y: 0, width: 36, height: 30))
+        clickArea.title = ""
+        clickArea.isBordered = false
+        clickArea.isTransparent = true
+        clickArea.target = self
+        clickArea.action = #selector(arrowTapped)
+        addSubview(clickArea)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func sliderChanged(_ sender: NSSlider) {
+        onValueChanged?(Float(sender.doubleValue))
+    }
+
+    @objc private func arrowTapped() {
+        onDisclosureTapped?()
     }
 }
 
@@ -137,7 +210,6 @@ final class TrackpadPreviewView: NSView {
         let pad: CGFloat = 24
         let rect = NSRect(x: pad, y: 8, width: bounds.width - pad * 2, height: bounds.height - 16)
 
-        // Trackpad body
         let body = NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10)
         NSColor.white.withAlphaComponent(0.06).setFill()
         body.fill()
@@ -145,25 +217,15 @@ final class TrackpadPreviewView: NSView {
         body.lineWidth = 1
         body.stroke()
 
-        // Edge zones
-        NSColor.systemBlue.withAlphaComponent(0.2).setFill()
+        NSColor.controlAccentColor.withAlphaComponent(0.2).setFill()
         let inW = rect.width * edgeInset
         let inH = rect.height * edgeInset
 
-        // Top
-        NSBezierPath(rect: NSRect(x: rect.minX, y: rect.maxY - inH, width: rect.width, height: inH))
-            .fill()
-        // Bottom
-        NSBezierPath(rect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: inH))
-            .fill()
-        // Left
-        NSBezierPath(rect: NSRect(x: rect.minX, y: rect.minY + inH, width: inW, height: rect.height - 2 * inH))
-            .fill()
-        // Right
-        NSBezierPath(rect: NSRect(x: rect.maxX - inW, y: rect.minY + inH, width: inW, height: rect.height - 2 * inH))
-            .fill()
+        NSBezierPath(rect: NSRect(x: rect.minX, y: rect.maxY - inH, width: rect.width, height: inH)).fill()
+        NSBezierPath(rect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: inH)).fill()
+        NSBezierPath(rect: NSRect(x: rect.minX, y: rect.minY + inH, width: inW, height: rect.height - 2 * inH)).fill()
+        NSBezierPath(rect: NSRect(x: rect.maxX - inW, y: rect.minY + inH, width: inW, height: rect.height - 2 * inH)).fill()
 
-        // Labels
         let font = NSFont.systemFont(ofSize: 8, weight: .medium)
         let color = NSColor.white.withAlphaComponent(0.45)
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
