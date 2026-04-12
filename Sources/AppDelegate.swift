@@ -111,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     }
 
     private var sensitivityMultiplier: Float = 1.0
+    private var sensitivityExpanded = false
 
     private func refreshMenu() {
         let menu = NSMenu()
@@ -127,17 +128,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         menu.addItem(header)
         menu.addItem(.separator())
 
-        // -- Sensitivity --
+        // -- Sensitivity (AirPods-style: slider + chevron dropdown) --
         let sensSection = NSMenuItem()
         sensSection.view = MenuSectionView(title: "Sensitivity", menuWidth: w)
         menu.addItem(sensSection)
 
-        // Overall slider — submenu pops out right with individual sliders
-        let overallView = MenuSliderView(
-            title: "Overall", min: 0.3, max: 2.5,
-            value: sensitivityMultiplier, menuWidth: w, showArrow: true
+        let sensView = SensitivityDropdownView(
+            value: sensitivityMultiplier,
+            expanded: sensitivityExpanded,
+            menuWidth: w
         )
-        overallView.onValueChanged = { [weak self] val in
+        sensView.onValueChanged = { [weak self] val in
             guard let self else { return }
             self.sensitivityMultiplier = val
             self.scroll.horizontalSensitivity = 800 * val
@@ -145,31 +146,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             self.volume.sensitivity = 1.2 * val
             self.brightness.sensitivity = 1.2 * val
         }
-        let overallItem = NSMenuItem()
-        overallItem.view = overallView
+        sensView.onChevronTapped = { [weak self] in
+            guard let self else { return }
+            self.sensitivityExpanded.toggle()
+            self.refreshMenu()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self.statusItem.button?.performClick(nil)
+            }
+        }
+        let sensItem = NSMenuItem()
+        sensItem.view = sensView
+        menu.addItem(sensItem)
 
-        // Submenu with individual sliders (appears to the right)
-        let detailMenu = NSMenu()
-        detailMenu.minimumWidth = w
-        addSlider(detailMenu, "Scroll", min: 200, max: 2000,
-                  value: scroll.horizontalSensitivity, width: w) { [weak self] val in
-            self?.scroll.horizontalSensitivity = val
-            self?.scroll.verticalSensitivity = val
+        if sensitivityExpanded {
+            addSlider(menu, "Scroll", min: 200, max: 2000,
+                      value: scroll.horizontalSensitivity, width: w, indent: true) { [weak self] val in
+                self?.scroll.horizontalSensitivity = val
+                self?.scroll.verticalSensitivity = val
+            }
+            addSlider(menu, "Volume", min: 0.3, max: 3.0,
+                      value: volume.sensitivity, width: w, indent: true) { [weak self] val in
+                self?.volume.sensitivity = val
+            }
+            addSlider(menu, "Brightness", min: 0.3, max: 3.0,
+                      value: brightness.sensitivity, width: w, indent: true) { [weak self] val in
+                self?.brightness.sensitivity = val
+            }
+            addSlider(menu, "Scrub", min: 0.02, max: 0.15,
+                      value: media.stepSize, width: w, indent: true) { [weak self] val in
+                self?.media.stepSize = val
+            }
         }
-        addSlider(detailMenu, "Volume", min: 0.3, max: 3.0,
-                  value: volume.sensitivity, width: w) { [weak self] val in
-            self?.volume.sensitivity = val
-        }
-        addSlider(detailMenu, "Brightness", min: 0.3, max: 3.0,
-                  value: brightness.sensitivity, width: w) { [weak self] val in
-            self?.brightness.sensitivity = val
-        }
-        addSlider(detailMenu, "Scrub", min: 0.02, max: 0.15,
-                  value: media.stepSize, width: w) { [weak self] val in
-            self?.media.stepSize = val
-        }
-        overallItem.submenu = detailMenu
-        menu.addItem(overallItem)
 
         menu.addItem(.separator())
 

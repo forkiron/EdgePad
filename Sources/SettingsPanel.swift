@@ -57,6 +57,94 @@ final class MenuSliderView: NSView {
     }
 }
 
+// MARK: - Sensitivity row with AirPods-style chevron dropdown
+
+final class SensitivityDropdownView: NSView {
+
+    private let slider = NSSlider()
+    private let chevronBg = NSView()
+    private let chevronLabel = NSTextField(labelWithString: "")
+    private let hoverBg = NSView()
+    var onValueChanged: ((Float) -> Void)?
+    var onChevronTapped: (() -> Void)?
+    private var isExpanded: Bool
+    private var trackingArea: NSTrackingArea?
+
+    init(value: Float, expanded: Bool, menuWidth: CGFloat = 280) {
+        isExpanded = expanded
+        super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 32))
+
+        // Hover bg for whole row
+        hoverBg.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 28)
+        hoverBg.wantsLayer = true
+        hoverBg.layer?.cornerRadius = 5
+        addSubview(hoverBg)
+
+        // Slider (no label, centered)
+        slider.minValue = 0.3
+        slider.maxValue = 2.5
+        slider.doubleValue = Double(value)
+        slider.controlSize = .regular
+        slider.isContinuous = true
+        slider.target = self
+        slider.action = #selector(sliderChanged(_:))
+        slider.frame = NSRect(x: 16, y: 6, width: menuWidth - 64, height: 20)
+        slider.trackFillColor = .systemBlue
+        addSubview(slider)
+
+        // Chevron circle (like AirPods Max)
+        let circleSize: CGFloat = 22
+        let circleX = menuWidth - circleSize - 12
+        let circleY = (32 - circleSize) / 2
+        chevronBg.frame = NSRect(x: circleX, y: circleY, width: circleSize, height: circleSize)
+        chevronBg.wantsLayer = true
+        chevronBg.layer?.cornerRadius = circleSize / 2
+        chevronBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
+        addSubview(chevronBg)
+
+        chevronLabel.stringValue = expanded ? "\u{2303}" : "\u{2304}"  // ⌃ or ⌄
+        chevronLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        chevronLabel.textColor = .secondaryLabelColor
+        chevronLabel.alignment = .center
+        chevronLabel.isBezeled = false
+        chevronLabel.drawsBackground = false
+        chevronLabel.isEditable = false
+        chevronLabel.isSelectable = false
+        chevronLabel.frame = NSRect(x: circleX, y: circleY, width: circleSize, height: circleSize)
+        addSubview(chevronLabel)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func updateTrackingAreas() {
+        if let ta = trackingArea { removeTrackingArea(ta) }
+        trackingArea = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self)
+        addTrackingArea(trackingArea!)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hoverBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.06).cgColor
+        chevronBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.15).cgColor
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoverBg.layer?.backgroundColor = nil
+        chevronBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let loc = convert(event.locationInWindow, from: nil)
+        // Click on chevron area (right 44px)
+        if loc.x > bounds.width - 44 {
+            onChevronTapped?()
+        }
+    }
+
+    @objc private func sliderChanged(_ sender: NSSlider) {
+        onValueChanged?(Float(sender.doubleValue))
+    }
+}
+
 // MARK: - Edge zone slider
 
 final class MenuEdgeSliderView: NSView {
