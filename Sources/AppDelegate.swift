@@ -105,13 +105,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     private func refreshStatusIcon() {
         guard let button = statusItem.button else { return }
-        switch activePreset {
-        case .auto:    button.title = "◉"
-        case .media:   button.title = "◱"
-        case .reading: button.title = "◨"
-        }
+        button.image = NSImage(systemSymbolName: "hand.point.up.braille", accessibilityDescription: "EdgePad")
+        button.image?.isTemplate = true
         button.toolTip = "EdgePad — \(activePreset.displayName)"
     }
+
+    private var sensitivityMultiplier: Float = 1.0
 
     private func refreshMenu() {
         let menu = NSMenu()
@@ -128,32 +127,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         menu.addItem(header)
         menu.addItem(.separator())
 
-        // Sensitivity section
+        // -- Sensitivity: overall slider + submenu for fine-tuning --
         let sensSection = NSMenuItem()
         sensSection.view = MenuSectionView(title: "Sensitivity", menuWidth: w)
         menu.addItem(sensSection)
 
-        addSlider(menu, "Scroll", min: 200, max: 2000,
+        let overallView = MenuSliderView(
+            title: "Overall", min: 0.3, max: 2.5,
+            value: sensitivityMultiplier, menuWidth: w
+        )
+        overallView.onValueChanged = { [weak self] val in
+            guard let self else { return }
+            self.sensitivityMultiplier = val
+            self.scroll.horizontalSensitivity = 800 * val
+            self.scroll.verticalSensitivity = 800 * val
+            self.volume.sensitivity = 1.2 * val
+            self.brightness.sensitivity = 1.2 * val
+        }
+        let overallItem = NSMenuItem()
+        overallItem.view = overallView
+
+        // Submenu with individual sliders
+        let detailMenu = NSMenu()
+        detailMenu.minimumWidth = w
+        addSlider(detailMenu, "Scroll", min: 200, max: 2000,
                   value: scroll.horizontalSensitivity, width: w) { [weak self] val in
             self?.scroll.horizontalSensitivity = val
             self?.scroll.verticalSensitivity = val
         }
-        addSlider(menu, "Volume", min: 0.3, max: 3.0,
+        addSlider(detailMenu, "Volume", min: 0.3, max: 3.0,
                   value: volume.sensitivity, width: w) { [weak self] val in
             self?.volume.sensitivity = val
         }
-        addSlider(menu, "Brightness", min: 0.3, max: 3.0,
+        addSlider(detailMenu, "Brightness", min: 0.3, max: 3.0,
                   value: brightness.sensitivity, width: w) { [weak self] val in
             self?.brightness.sensitivity = val
         }
-        addSlider(menu, "Scrub", min: 0.02, max: 0.15,
+        addSlider(detailMenu, "Scrub", min: 0.02, max: 0.15,
                   value: media.stepSize, width: w) { [weak self] val in
             self?.media.stepSize = val
         }
+        overallItem.submenu = detailMenu
+        menu.addItem(overallItem)
 
         menu.addItem(.separator())
 
-        // Edge zone section
+        // -- Edge Zone --
         let edgeSection = NSMenuItem()
         edgeSection.view = MenuSectionView(title: "Edge Zone", menuWidth: w)
         menu.addItem(edgeSection)
@@ -179,7 +198,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
         menu.addItem(.separator())
 
-        // Profile picker
+        // -- Mode with icons --
+        let modeSection = NSMenuItem()
+        modeSection.view = MenuSectionView(title: "Mode", menuWidth: w)
+        menu.addItem(modeSection)
+
         for preset in EdgeProfilePreset.allCases {
             let item = NSMenuItem(
                 title: preset.displayName,
@@ -189,6 +212,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             item.target = self
             item.representedObject = preset.rawValue
             item.state = (preset == activePreset) ? .on : .off
+
+            let symbolName: String
+            switch preset {
+            case .auto:    symbolName = "wand.and.stars"
+            case .media:   symbolName = "play.fill"
+            case .reading: symbolName = "book.fill"
+            }
+            item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: preset.displayName)
+
             menu.addItem(item)
         }
 
