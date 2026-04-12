@@ -21,9 +21,16 @@ let package = Package(
         .executable(name: "EdgePad", targets: ["EdgePad"]),
     ],
     targets: [
+        .target(
+            name: "CMediaRemote",
+            path: "Sources/CMediaRemote",
+            publicHeadersPath: "include"
+        ),
         .executableTarget(
             name: "EdgePad",
+            dependencies: ["CMediaRemote"],
             path: "Sources",
+            exclude: ["CMediaRemote"],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
             ]

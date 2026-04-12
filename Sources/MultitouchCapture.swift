@@ -279,7 +279,6 @@ public final class MultitouchCapture {
         } else if nFingers == 0 {
             detector?.handleAllTouchesEnded()
         } else {
-            NSLog("[MT] MULTI-FINGER \(nFingers) — cancel any active drag")
             detector?.handleMultiFinger()
         }
     }
