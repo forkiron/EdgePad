@@ -207,7 +207,7 @@ Reading profile (manual override):
         activeDragAction = action
         if action != .disabled {
             savedCursorPosition = CGEvent(source: nil)?.location
-            CGAssociateMouseAndMouseCursorPosition(0)
+            NSCursor.hide()
         }
         NSLog("[APP] ▶ BEGIN \(edge) → action=\(action.rawValue)")
         switch action {
@@ -234,6 +234,10 @@ Reading profile (manual override):
     }
 
     func edgeDetector(_ detector: EdgeDetector, didUpdate event: EdgeDragEvent) {
+        // Pin cursor in place every frame
+        if let pos = savedCursorPosition {
+            CGWarpMouseCursorPosition(pos)
+        }
         switch activeDragAction {
         case .volume:
             let new = volume.applyDelta(event.delta)
@@ -260,10 +264,10 @@ Reading profile (manual override):
     func edgeDetector(_ detector: EdgeDetector, didEndDragOn edge: TrackpadEdge) {
         NSLog("[APP] ◼ END \(edge)")
         activeDragAction = .disabled
-        CGAssociateMouseAndMouseCursorPosition(1)
         if let pos = savedCursorPosition {
             CGWarpMouseCursorPosition(pos)
             savedCursorPosition = nil
         }
+        NSCursor.unhide()
     }
 }
