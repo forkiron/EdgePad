@@ -34,6 +34,7 @@ final class MenuSliderView: NSView {
         slider.target = self
         slider.action = #selector(changed(_:))
         slider.frame = NSRect(x: 100, y: 7, width: menuWidth - 120, height: 16)
+        slider.trackFillColor = .controlAccentColor
         addSubview(slider)
     }
 
@@ -73,6 +74,7 @@ final class MenuEdgeSliderView: NSView {
         slider.target = self
         slider.action = #selector(changed(_:))
         slider.frame = NSRect(x: 76, y: 7, width: menuWidth - 136, height: 16)
+        slider.trackFillColor = .controlAccentColor
         addSubview(slider)
 
         pctLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
