@@ -75,6 +75,10 @@ public final class EdgeDetector {
     }
     private var candidateFrames: [CandidateFrame] = []
 
+    /// Touch IDs that started outside all edge zones. These are cursor
+    /// movements — ignore them even if they later drift into an edge.
+    private var centerTouchIDs: Set<Int32> = []
+
     public init() {}
 
     /// Call this from a global keyDown monitor to feed typing suppression.
@@ -85,18 +89,25 @@ public final class EdgeDetector {
     // MARK: - Primary input
 
     public func handle(sample: TouchSample) {
+        // Touches that started in the center are cursor movements — never
+        // activate edge controls for them, even if they drift into a zone.
+        if centerTouchIDs.contains(sample.id) { return }
+
         if let edge = activeEdge, let id = activeTouchID {
-            // Only the same touch ID that started the drag updates it.
-            guard sample.id == id else {
-                // Different finger — ignore (multi-finger will be
-                // handled by handleMultiFinger if there are truly 2+).
-                return
-            }
+            guard sample.id == id else { return }
             continueDrag(on: edge, sample: sample)
             return
         }
 
-        // No active drag. Try to start one.
+        // First frame of a new touch — decide: edge or center?
+        if sample.state == .beginning {
+            if classify(x: sample.x, y: sample.y) == nil {
+                centerTouchIDs.insert(sample.id)
+                return
+            }
+        }
+
+        // Try to start an edge drag (only reachable if touch began in edge zone)
         guard let edge = classify(x: sample.x, y: sample.y) else {
             return
         }
@@ -121,12 +132,14 @@ public final class EdgeDetector {
     }
 
     public func handleTouchEnd(id: Int32) {
+        centerTouchIDs.remove(id)
         guard let activeID = activeTouchID, activeID == id else { return }
         endActiveDrag()
     }
 
     public func handleAllTouchesEnded() {
         endActiveDrag()
+        centerTouchIDs.removeAll()
     }
 
     /// Reset state — call on sleep/wake or on a framework failure.
@@ -135,6 +148,7 @@ public final class EdgeDetector {
         activeTouchID = nil
         pastDeadZone = false
         candidateFrames.removeAll()
+        centerTouchIDs.removeAll()
     }
 
     // MARK: - Internals
