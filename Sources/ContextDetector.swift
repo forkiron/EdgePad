@@ -1,55 +1,50 @@
 // ContextDetector.swift
 //
-// Media: calls CMediaRemoteIsPlaying() — a pure C function that queries
-// MediaRemote with native C blocks (no Swift concurrency issues).
-// Polled every 2s + queried at drag-begin.
+// Media: checks the frontmost app + window title. If the app is a dedicated
+// media player (Spotify, VLC) or a browser showing a video site (YouTube,
+// Netflix), media controls activate. No private frameworks, no blocks.
 //
 // Scrollbars: AX API with browser fallback.
 
 import AppKit
 import ApplicationServices
 import Foundation
-import CMediaRemote
+import CoreGraphics
 
 @MainActor
 final class ContextDetector: @unchecked Sendable {
 
-    private(set) var isMediaPlaying = false
-    private var pollTimer: Timer?
+    private static let mediaApps: Set<String> = [
+        "com.apple.Music", "com.spotify.client", "com.apple.QuickTimePlayerX",
+        "org.videolan.vlc", "com.colliderli.iina", "com.apple.TV",
+        "com.apple.podcasts", "com.apple.Safari.WebContent",
+    ]
 
-    init() {
-        // Initial check + start polling
-        refreshMedia()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshMedia() }
-        }
-    }
+    private static let browserApps: Set<String> = [
+        "com.apple.Safari", "com.google.Chrome", "org.mozilla.firefox",
+        "com.brave.Browser", "com.microsoft.edgemac", "com.operasoftware.Opera",
+    ]
 
-    func stop() {
-        pollTimer?.invalidate()
-        pollTimer = nil
-    }
+    private static let videoSites = [
+        "YouTube", "Netflix", "Twitch", "Hulu", "Disney+", "Disney Plus",
+        "Prime Video", "Vimeo", "HBO", "Peacock", "Paramount+",
+        "Crunchyroll", "Spotify", "Apple TV", "SoundCloud",
+        "Dailymotion", "Plex", "Tubi",
+    ]
 
-    private func refreshMedia() {
-        let playing = CMediaRemoteIsPlaying()
-        if playing != isMediaPlaying {
-            NSLog("[CTX] media: \(playing)")
-        }
-        isMediaPlaying = playing
-    }
+    init() {}
+    func stop() {}
 
     // MARK: - Edge action resolution
 
     func resolveAction(for edge: TrackpadEdge) -> EdgeAction {
-        // Fresh check at drag-begin
-        refreshMedia()
-
+        let media = isMediaContext()
         let action: EdgeAction
         switch edge {
         case .top:
-            action = isMediaPlaying ? .mediaScrub : .disabled
+            action = media ? .mediaScrub : .disabled
         case .left:
-            action = isMediaPlaying ? .volume : .disabled
+            action = media ? .volume : .disabled
         case .bottom:
             let (h, _) = detectScrollBars()
             action = h ? .scrollHorizontal : .disabled
@@ -58,10 +53,58 @@ final class ContextDetector: @unchecked Sendable {
             if v {
                 action = .scrollVertical
             } else {
-                action = isMediaPlaying ? .brightness : .disabled
+                action = media ? .brightness : .disabled
             }
         }
+        NSLog("[CTX] \(edge.rawValue) -> \(action.rawValue) media=\(media)")
         return action
+    }
+
+    // MARK: - Media detection (window title + app bundle ID)
+
+    private func isMediaContext() -> Bool {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let bid = app.bundleIdentifier else { return false }
+
+        // Dedicated media players — always media context
+        if Self.mediaApps.contains(bid) {
+            NSLog("[CTX] media app: \(bid)")
+            return true
+        }
+
+        // Browsers — check window title for video sites
+        if Self.browserApps.contains(bid) {
+            if let title = windowTitle(for: app.processIdentifier) {
+                for site in Self.videoSites {
+                    if title.localizedCaseInsensitiveContains(site) {
+                        NSLog("[CTX] video site in title: \(site) (\(title.prefix(60)))")
+                        return true
+                    }
+                }
+            }
+        }
+
+        return false
+    }
+
+    /// Get the frontmost window's title via CGWindowList (public API, no AX needed).
+    private func windowTitle(for pid: pid_t) -> String? {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[String: Any]] else { return nil }
+
+        // Find the frontmost window owned by this PID
+        for win in list {
+            if let ownerPID = win[kCGWindowOwnerPID as String] as? pid_t,
+               ownerPID == pid,
+               let layer = win[kCGWindowLayer as String] as? Int, layer == 0,
+               let name = win[kCGWindowName as String] as? String,
+               !name.isEmpty {
+                return name
+            }
+        }
+        return nil
     }
 
     // MARK: - Scrollbar detection
@@ -80,12 +123,8 @@ final class ContextDetector: @unchecked Sendable {
         guard let bid = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
             return false
         }
-        let scrollableApps: Set<String> = [
-            "com.apple.Safari", "com.google.Chrome", "org.mozilla.firefox",
-            "com.brave.Browser", "com.microsoft.edgemac",
-            "com.apple.Preview", "com.apple.finder",
-        ]
-        return scrollableApps.contains(bid)
+        return Self.browserApps.contains(bid) ||
+            bid == "com.apple.Preview" || bid == "com.apple.finder"
     }
 
     private func scrollBarsViaAX() -> (horizontal: Bool, vertical: Bool)? {
@@ -95,16 +134,14 @@ final class ContextDetector: @unchecked Sendable {
         guard AXUIElementCopyAttributeValue(
             systemWide, "AXFocusedApplication" as CFString, &appRef
         ) == .success else { return nil }
-        let app = appRef as! AXUIElement
 
         var winRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
-            app, "AXFocusedWindow" as CFString, &winRef
+            appRef as! AXUIElement, "AXFocusedWindow" as CFString, &winRef
         ) == .success else { return nil }
-        let window = winRef as! AXUIElement
 
         var hasH = false, hasV = false
-        findScrollBars(in: window, depth: 0, hasH: &hasH, hasV: &hasV)
+        findScrollBars(in: winRef as! AXUIElement, depth: 0, hasH: &hasH, hasV: &hasV)
         return (hasH, hasV)
     }
 
