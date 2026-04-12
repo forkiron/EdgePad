@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     // UI
     private let overlay    = OverlayWindow()
+    private let settings   = SettingsPanel()
 
     // State
     private var activeProfile: EdgeProfile = .media
@@ -55,6 +56,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
         setupStatusItem()
         setupKeyMonitor()
+
+        settings.configure(
+            detector: detector,
+            scroll: scroll,
+            volume: volume,
+            brightness: brightness,
+            media: media
+        )
 
         capture.start(routingTo: detector)
 
@@ -138,6 +147,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
         let about = NSMenuItem(title: "About EdgePad…", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
@@ -159,6 +172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         refreshStatusIcon()
         refreshMenu()
         NSLog("EdgePad: profile → \(preset.rawValue)")
+    }
+
+    @objc private func openSettings() {
+        settings.toggle()
     }
 
     @objc private func showAbout() {
