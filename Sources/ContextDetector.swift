@@ -154,9 +154,12 @@ final class ContextDetector: @unchecked Sendable {
             NSLog("[CTX] registered for MediaRemote notifications")
         }
 
-        // Load the notification name from the framework symbol
+        // Load the notification name from the framework symbol.
+        // dlsym returns a pointer TO the CFStringRef global, so we
+        // dereference once to get the actual string pointer.
         if let nameSym = dlsym(h, "kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification") {
-            let name = Unmanaged<NSString>.fromOpaque(nameSym).takeUnretainedValue() as String
+            let rawPtr = nameSym.load(as: UnsafeRawPointer.self)
+            let name = Unmanaged<NSString>.fromOpaque(rawPtr).takeUnretainedValue() as String
             NSLog("[CTX] observing notification: \(name)")
 
             NotificationCenter.default.addObserver(
