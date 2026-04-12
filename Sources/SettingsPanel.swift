@@ -1,6 +1,4 @@
-// SettingsPanel.swift
-//
-// Custom NSView-based menu items — inline settings in the dropdown.
+// SettingsPanel.swift — Custom NSView menu items.
 
 import AppKit
 
@@ -12,24 +10,21 @@ final class MenuSliderView: NSView {
     var onValueChanged: ((Float) -> Void)?
 
     init(title: String, min: Float, max: Float, value: Float,
-         menuWidth: CGFloat = 280, darkBg: Bool = false) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 30))
-        if darkBg {
-            wantsLayer = true
-            layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
-        }
+         menuWidth: CGFloat = 280, indent: Bool = false) {
+        super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
 
+        let labelX: CGFloat = indent ? 32 : 20
         let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 13)
-        label.textColor = darkBg ? .secondaryLabelColor : .labelColor
+        label.font = .systemFont(ofSize: indent ? 12 : 13)
+        label.textColor = indent ? .secondaryLabelColor : .labelColor
         label.isBezeled = false
         label.drawsBackground = false
         label.isEditable = false
         label.isSelectable = false
-        label.frame = NSRect(x: darkBg ? 32 : 20, y: 5, width: 76, height: 20)
+        label.frame = NSRect(x: labelX, y: 4, width: 76, height: 20)
         addSubview(label)
 
-        let sliderX: CGFloat = darkBg ? 110 : 100
+        let sliderX: CGFloat = indent ? 112 : 100
         slider.minValue = Double(min)
         slider.maxValue = Double(max)
         slider.doubleValue = Double(value)
@@ -37,7 +32,7 @@ final class MenuSliderView: NSView {
         slider.isContinuous = true
         slider.target = self
         slider.action = #selector(changed(_:))
-        slider.frame = NSRect(x: sliderX, y: 7, width: menuWidth - sliderX - 16, height: 16)
+        slider.frame = NSRect(x: sliderX, y: 6, width: menuWidth - sliderX - 16, height: 16)
         slider.trackFillColor = .systemBlue
         addSubview(slider)
     }
@@ -49,94 +44,7 @@ final class MenuSliderView: NSView {
     }
 }
 
-// MARK: - Overall sensitivity with disclosure arrow + hover
-
-final class SensitivityHeaderView: NSView {
-
-    private let slider = NSSlider()
-    private let arrowLabel = NSTextField(labelWithString: "")
-    private let hoverBg = NSView()
-    var onValueChanged: ((Float) -> Void)?
-    var onDisclosureTapped: (() -> Void)?
-    var isExpanded = false {
-        didSet { arrowLabel.stringValue = isExpanded ? "\u{25BE}" : "\u{25B8}" }
-    }
-    private var trackingArea: NSTrackingArea?
-
-    init(value: Float, expanded: Bool, menuWidth: CGFloat = 280) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 30))
-        isExpanded = expanded
-
-        // Hover background
-        hoverBg.frame = NSRect(x: 4, y: 1, width: menuWidth - 8, height: 28)
-        hoverBg.wantsLayer = true
-        hoverBg.layer?.cornerRadius = 5
-        hoverBg.layer?.backgroundColor = nil
-        addSubview(hoverBg)
-
-        let label = NSTextField(labelWithString: "Overall")
-        label.font = .systemFont(ofSize: 13)
-        label.textColor = .labelColor
-        label.isBezeled = false
-        label.drawsBackground = false
-        label.isEditable = false
-        label.isSelectable = false
-        label.frame = NSRect(x: 20, y: 5, width: 60, height: 20)
-        addSubview(label)
-
-        slider.minValue = 0.3
-        slider.maxValue = 2.5
-        slider.doubleValue = Double(value)
-        slider.controlSize = .small
-        slider.isContinuous = true
-        slider.target = self
-        slider.action = #selector(sliderChanged(_:))
-        slider.frame = NSRect(x: 86, y: 7, width: menuWidth - 126, height: 16)
-        slider.trackFillColor = .systemBlue
-        addSubview(slider)
-
-        arrowLabel.stringValue = expanded ? "\u{25BE}" : "\u{25B8}"
-        arrowLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        arrowLabel.textColor = .secondaryLabelColor
-        arrowLabel.alignment = .center
-        arrowLabel.isBezeled = false
-        arrowLabel.drawsBackground = false
-        arrowLabel.isEditable = false
-        arrowLabel.isSelectable = false
-        arrowLabel.frame = NSRect(x: menuWidth - 28, y: 5, width: 20, height: 20)
-        addSubview(arrowLabel)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func updateTrackingAreas() {
-        if let ta = trackingArea { removeTrackingArea(ta) }
-        trackingArea = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self)
-        addTrackingArea(trackingArea!)
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        hoverBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hoverBg.layer?.backgroundColor = nil
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        // Only trigger disclosure if clicking near the arrow (right 40px)
-        let loc = convert(event.locationInWindow, from: nil)
-        if loc.x > bounds.width - 40 {
-            onDisclosureTapped?()
-        }
-    }
-
-    @objc private func sliderChanged(_ sender: NSSlider) {
-        onValueChanged?(Float(sender.doubleValue))
-    }
-}
-
-// MARK: - Edge zone slider (label + slider + percentage)
+// MARK: - Edge zone slider
 
 final class MenuEdgeSliderView: NSView {
 
@@ -145,7 +53,7 @@ final class MenuEdgeSliderView: NSView {
     var onValueChanged: ((Float) -> Void)?
 
     init(value: Float, menuWidth: CGFloat = 280) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 30))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
 
         let title = NSTextField(labelWithString: "Width")
         title.font = .systemFont(ofSize: 13)
@@ -154,7 +62,7 @@ final class MenuEdgeSliderView: NSView {
         title.drawsBackground = false
         title.isEditable = false
         title.isSelectable = false
-        title.frame = NSRect(x: 20, y: 5, width: 50, height: 20)
+        title.frame = NSRect(x: 20, y: 4, width: 50, height: 20)
         addSubview(title)
 
         slider.minValue = 5
@@ -164,7 +72,7 @@ final class MenuEdgeSliderView: NSView {
         slider.isContinuous = true
         slider.target = self
         slider.action = #selector(changed(_:))
-        slider.frame = NSRect(x: 76, y: 7, width: menuWidth - 136, height: 16)
+        slider.frame = NSRect(x: 76, y: 6, width: menuWidth - 136, height: 16)
         slider.trackFillColor = .systemBlue
         addSubview(slider)
 
@@ -176,7 +84,7 @@ final class MenuEdgeSliderView: NSView {
         pctLabel.isEditable = false
         pctLabel.isSelectable = false
         pctLabel.stringValue = "\(Int(value * 100))%"
-        pctLabel.frame = NSRect(x: menuWidth - 56, y: 5, width: 40, height: 20)
+        pctLabel.frame = NSRect(x: menuWidth - 52, y: 4, width: 36, height: 20)
         addSubview(pctLabel)
     }
 
@@ -189,12 +97,11 @@ final class MenuEdgeSliderView: NSView {
     }
 }
 
-// MARK: - Profile row (hover + animated checkmark, doesn't close menu)
+// MARK: - Profile row (hover + animated checkmark)
 
 final class ProfileItemView: NSView {
 
     private let checkContainer = NSView()
-    private let checkLabel = NSTextField(labelWithString: "")
     private let hoverBg = NSView()
     var onSelected: (() -> Void)?
     private var trackingArea: NSTrackingArea?
@@ -202,31 +109,32 @@ final class ProfileItemView: NSView {
     init(title: String, symbolName: String, isActive: Bool, menuWidth: CGFloat = 280) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
 
-        // Hover background (rounded)
+        // Hover bg
         hoverBg.frame = NSRect(x: 4, y: 1, width: menuWidth - 8, height: 26)
         hoverBg.wantsLayer = true
-        hoverBg.layer?.cornerRadius = 5
+        hoverBg.layer?.cornerRadius = 4
         addSubview(hoverBg)
 
-        // Checkmark container (for clip-mask animation)
-        checkContainer.frame = NSRect(x: 6, y: 4, width: isActive ? 16 : 0, height: 20)
+        // Checkmark (clipped container for left-to-right reveal)
+        checkContainer.frame = NSRect(x: 10, y: 0, width: isActive ? 18 : 0, height: 28)
         checkContainer.wantsLayer = true
         checkContainer.layer?.masksToBounds = true
         addSubview(checkContainer)
 
-        checkLabel.stringValue = "\u{2713}"
-        checkLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        checkLabel.textColor = .labelColor
-        checkLabel.isBezeled = false
-        checkLabel.drawsBackground = false
-        checkLabel.isEditable = false
-        checkLabel.isSelectable = false
-        checkLabel.frame = NSRect(x: 0, y: 0, width: 16, height: 20)
-        checkContainer.addSubview(checkLabel)
+        let check = NSTextField(labelWithString: "\u{2713}")
+        check.font = .systemFont(ofSize: 14, weight: .semibold)
+        check.textColor = .labelColor
+        check.isBezeled = false
+        check.drawsBackground = false
+        check.isEditable = false
+        check.isSelectable = false
+        check.frame = NSRect(x: 0, y: 5, width: 18, height: 18)
+        checkContainer.addSubview(check)
 
         // Icon
+        let iconX: CGFloat = 30
         if let img = NSImage(systemSymbolName: symbolName, accessibilityDescription: title) {
-            let iv = NSImageView(frame: NSRect(x: 26, y: 5, width: 16, height: 16))
+            let iv = NSImageView(frame: NSRect(x: iconX, y: 6, width: 16, height: 16))
             iv.image = img
             iv.contentTintColor = .secondaryLabelColor
             addSubview(iv)
@@ -240,7 +148,7 @@ final class ProfileItemView: NSView {
         label.drawsBackground = false
         label.isEditable = false
         label.isSelectable = false
-        label.frame = NSRect(x: 48, y: 4, width: menuWidth - 64, height: 20)
+        label.frame = NSRect(x: iconX + 22, y: 5, width: menuWidth - iconX - 38, height: 18)
         addSubview(label)
     }
 
@@ -264,17 +172,12 @@ final class ProfileItemView: NSView {
         onSelected?()
     }
 
-    /// Animate checkmark reveal (left-to-right clip expansion)
     func setActive(_ active: Bool) {
-        let targetWidth: CGFloat = active ? 16 : 0
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.2
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             checkContainer.animator().frame = NSRect(
-                x: checkContainer.frame.origin.x,
-                y: checkContainer.frame.origin.y,
-                width: targetWidth,
-                height: checkContainer.frame.height
+                x: 10, y: 0, width: active ? 18 : 0, height: 28
             )
         }
     }
@@ -305,14 +208,9 @@ final class MenuSectionView: NSView {
 
 final class TrackpadPreviewView: NSView {
 
-    var edgeInset: CGFloat = 0.10 {
-        didSet { needsDisplay = true }
-    }
+    var edgeInset: CGFloat = 0.10 { didSet { needsDisplay = true } }
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-    }
-
+    override init(frame: NSRect) { super.init(frame: frame) }
     required init?(coder: NSCoder) { fatalError() }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -326,7 +224,7 @@ final class TrackpadPreviewView: NSView {
         body.lineWidth = 1
         body.stroke()
 
-        NSColor.controlAccentColor.withAlphaComponent(0.2).setFill()
+        NSColor.systemBlue.withAlphaComponent(0.18).setFill()
         let inW = rect.width * edgeInset
         let inH = rect.height * edgeInset
 
@@ -336,7 +234,7 @@ final class TrackpadPreviewView: NSView {
         NSBezierPath(rect: NSRect(x: rect.maxX - inW, y: rect.minY + inH, width: inW, height: rect.height - 2 * inH)).fill()
 
         let font = NSFont.systemFont(ofSize: 8, weight: .medium)
-        let color = NSColor.white.withAlphaComponent(0.45)
+        let color = NSColor.white.withAlphaComponent(0.4)
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
 
         centered("scrub", in: NSRect(x: rect.minX, y: rect.maxY - inH, width: rect.width, height: inH), attrs: attrs)

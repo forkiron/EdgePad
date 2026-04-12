@@ -111,7 +111,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     }
 
     private var sensitivityMultiplier: Float = 1.0
-    private var sensitivityExpanded = false
 
     private func refreshMenu() {
         let menu = NSMenu()
@@ -133,13 +132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         sensSection.view = MenuSectionView(title: "Sensitivity", menuWidth: w)
         menu.addItem(sensSection)
 
-        // Overall slider with disclosure arrow
-        let sensHeader = SensitivityHeaderView(
-            value: sensitivityMultiplier,
-            expanded: sensitivityExpanded,
-            menuWidth: w
-        )
-        sensHeader.onValueChanged = { [weak self] val in
+        addSlider(menu, "Overall", min: 0.3, max: 2.5,
+                  value: sensitivityMultiplier, width: w) { [weak self] val in
             guard let self else { return }
             self.sensitivityMultiplier = val
             self.scroll.horizontalSensitivity = 800 * val
@@ -147,37 +141,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             self.volume.sensitivity = 1.2 * val
             self.brightness.sensitivity = 1.2 * val
         }
-        sensHeader.onDisclosureTapped = { [weak self] in
-            guard let self else { return }
-            self.sensitivityExpanded.toggle()
-            self.refreshMenu()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                self.statusItem.button?.performClick(nil)
-            }
+        addSlider(menu, "Scroll", min: 200, max: 2000,
+                  value: scroll.horizontalSensitivity, width: w, indent: true) { [weak self] val in
+            self?.scroll.horizontalSensitivity = val
+            self?.scroll.verticalSensitivity = val
         }
-        let sensItem = NSMenuItem()
-        sensItem.view = sensHeader
-        menu.addItem(sensItem)
-
-        // Expanded: individual sliders with darker bg
-        if sensitivityExpanded {
-            addDetailSlider(menu, "Scroll", min: 200, max: 2000,
-                            value: scroll.horizontalSensitivity, width: w) { [weak self] val in
-                self?.scroll.horizontalSensitivity = val
-                self?.scroll.verticalSensitivity = val
-            }
-            addDetailSlider(menu, "Volume", min: 0.3, max: 3.0,
-                            value: volume.sensitivity, width: w) { [weak self] val in
-                self?.volume.sensitivity = val
-            }
-            addDetailSlider(menu, "Brightness", min: 0.3, max: 3.0,
-                            value: brightness.sensitivity, width: w) { [weak self] val in
-                self?.brightness.sensitivity = val
-            }
-            addDetailSlider(menu, "Scrub", min: 0.02, max: 0.15,
-                            value: media.stepSize, width: w) { [weak self] val in
-                self?.media.stepSize = val
-            }
+        addSlider(menu, "Volume", min: 0.3, max: 3.0,
+                  value: volume.sensitivity, width: w, indent: true) { [weak self] val in
+            self?.volume.sensitivity = val
+        }
+        addSlider(menu, "Brightness", min: 0.3, max: 3.0,
+                  value: brightness.sensitivity, width: w, indent: true) { [weak self] val in
+            self?.brightness.sensitivity = val
+        }
+        addSlider(menu, "Scrub", min: 0.02, max: 0.15,
+                  value: media.stepSize, width: w, indent: true) { [weak self] val in
+            self?.media.stepSize = val
         }
 
         menu.addItem(.separator())
@@ -252,10 +231,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         statusItem.menu = menu
     }
 
-    private func addDetailSlider(_ menu: NSMenu, _ title: String, min: Float, max: Float,
-                                 value: Float, width: CGFloat, onChange: @escaping (Float) -> Void) {
+    private func addSlider(_ menu: NSMenu, _ title: String, min: Float, max: Float,
+                           value: Float, width: CGFloat, indent: Bool = false,
+                           onChange: @escaping (Float) -> Void) {
         let view = MenuSliderView(title: title, min: min, max: max, value: value,
-                                  menuWidth: width, darkBg: true)
+                                  menuWidth: width, indent: indent)
         view.onValueChanged = onChange
         let item = NSMenuItem()
         item.view = view
