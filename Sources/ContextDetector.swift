@@ -1,33 +1,34 @@
 // ContextDetector.swift
 //
 // Detects the current app context to dynamically resolve edge actions.
-// Scrollbar presence is queried via macOS Accessibility API at drag-begin.
-// Media playback state is polled from the private MediaRemote framework.
 //
-// Used by the Auto profile: scroll edges only activate when scrollbars
-// exist in the focused window, media/volume edges only when something
-// is actively playing.
+// Media playback: uses the private MediaRemote framework. Registers for
+// system notifications (no block-escaping issues) and polls as backup.
+//
+// Scrollbars: queries the macOS Accessibility API at drag-begin to check
+// whether the focused window contains scrollable content.
 
 import AppKit
 import ApplicationServices
 import Foundation
+import CoreGraphics
 
 @MainActor
 final class ContextDetector: @unchecked Sendable {
 
     /// Whether any app is currently playing media (music, video, podcast).
-    /// Updated every ~2 seconds via MediaRemote framework polling.
     private(set) var isMediaPlaying = false
 
     private var mrHandle: UnsafeMutableRawPointer?
-    private typealias MRIsPlayingBlock = @Sendable @convention(block) (Bool) -> Void
-    private typealias MRGetIsPlayingFn = @convention(c) (DispatchQueue, MRIsPlayingBlock) -> Void
-    private var getIsPlayingFn: MRGetIsPlayingFn?
     private var pollTimer: Timer?
+
+    // Function pointers
+    private typealias MRGetIsPlayingFn = @convention(c) (DispatchQueue, AnyObject) -> Void
+    private typealias MRRegisterFn = @convention(c) (DispatchQueue) -> Void
+    private var getIsPlayingFn: MRGetIsPlayingFn?
 
     init() {
         loadMediaRemote()
-        refreshMediaState()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshMediaState()
@@ -42,8 +43,6 @@ final class ContextDetector: @unchecked Sendable {
 
     // MARK: - Edge action resolution
 
-    /// Resolve what action an edge should perform based on current context.
-    /// Called once at drag-begin; the result is used for the entire drag.
     func resolveAction(for edge: TrackpadEdge) -> EdgeAction {
         let action: EdgeAction
         switch edge {
@@ -72,17 +71,21 @@ final class ContextDetector: @unchecked Sendable {
         let systemWide = AXUIElementCreateSystemWide()
 
         var appRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            systemWide, kAXFocusedApplicationAttribute as CFString, &appRef
-        ) == .success else {
+        let appErr = AXUIElementCopyAttributeValue(
+            systemWide, "AXFocusedApplication" as CFString, &appRef
+        )
+        guard appErr == .success else {
+            NSLog("[CTX] AX: no focused app (err=\(appErr.rawValue))")
             return (false, false)
         }
         let app = appRef as! AXUIElement
 
         var winRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            app, kAXFocusedWindowAttribute as CFString, &winRef
-        ) == .success else {
+        let winErr = AXUIElementCopyAttributeValue(
+            app, "AXFocusedWindow" as CFString, &winRef
+        )
+        guard winErr == .success else {
+            NSLog("[CTX] AX: no focused window (err=\(winErr.rawValue))")
             return (false, false)
         }
         let window = winRef as! AXUIElement
@@ -103,7 +106,7 @@ final class ContextDetector: @unchecked Sendable {
         if (hasH && hasV) || depth > 8 { return }
 
         var roleRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
+        if AXUIElementCopyAttributeValue(element, "AXRole" as CFString, &roleRef) == .success,
            let role = roleRef as? String,
            role == "AXScrollArea" {
             var ref: CFTypeRef?
@@ -117,7 +120,7 @@ final class ContextDetector: @unchecked Sendable {
         if hasH && hasV { return }
 
         var childrenRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+        guard AXUIElementCopyAttributeValue(element, "AXChildren" as CFString, &childrenRef) == .success,
               let children = childrenRef as? [AXUIElement] else { return }
 
         for child in children {
@@ -138,24 +141,48 @@ final class ContextDetector: @unchecked Sendable {
         }
         mrHandle = h
 
+        // Load the polling function
         if let sym = dlsym(h, "MRMediaRemoteGetNowPlayingApplicationIsPlaying") {
             getIsPlayingFn = unsafeBitCast(sym, to: MRGetIsPlayingFn.self)
             NSLog("[CTX] loaded MRMediaRemoteGetNowPlayingApplicationIsPlaying")
-        } else {
-            NSLog("[CTX] missing MRMediaRemoteGetNowPlayingApplicationIsPlaying")
         }
+
+        // Register for system notifications (primary detection path)
+        if let regSym = dlsym(h, "MRMediaRemoteRegisterForNowPlayingNotifications") {
+            let registerFn = unsafeBitCast(regSym, to: MRRegisterFn.self)
+            registerFn(DispatchQueue.main)
+            NSLog("[CTX] registered for MediaRemote notifications")
+        }
+
+        // Load the notification name from the framework symbol
+        if let nameSym = dlsym(h, "kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification") {
+            let name = Unmanaged<NSString>.fromOpaque(nameSym).takeUnretainedValue() as String
+            NSLog("[CTX] observing notification: \(name)")
+
+            NotificationCenter.default.addObserver(
+                forName: NSNotification.Name(name),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                NSLog("[CTX] playback state changed notification")
+                Task { @MainActor in
+                    self?.refreshMediaState()
+                }
+            }
+        }
+
+        // Do initial poll
+        refreshMediaState()
     }
 
     private func refreshMediaState() {
         guard let fn = getIsPlayingFn else { return }
-        fn(DispatchQueue.main) { [weak self] playing in
+        let block: @convention(block) (Bool) -> Void = { [weak self] playing in
+            NSLog("[CTX] poll callback: playing=\(playing)")
             Task { @MainActor in
-                let prev = self?.isMediaPlaying
                 self?.isMediaPlaying = playing
-                if prev != playing {
-                    NSLog("[CTX] media playing: \(playing)")
-                }
             }
         }
+        fn(DispatchQueue.main, block as AnyObject)
     }
 }

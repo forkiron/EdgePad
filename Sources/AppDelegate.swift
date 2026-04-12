@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     private var activeProfile: EdgeProfile = .media
     private var activePreset: EdgeProfilePreset = .auto
     private var activeDragAction: EdgeAction = .disabled
+    private var savedCursorPosition: CGPoint?
 
     // Global key monitor for typing suppression
     private var keyMonitor: Any?
@@ -204,6 +205,10 @@ Reading profile (manual override):
             action = activeProfile.action(for: edge)
         }
         activeDragAction = action
+        if action != .disabled {
+            savedCursorPosition = CGEvent(source: nil)?.location
+            CGAssociateMouseAndMouseCursorPosition(0)
+        }
         NSLog("[APP] ▶ BEGIN \(edge) → action=\(action.rawValue)")
         switch action {
         case .volume:
@@ -255,5 +260,10 @@ Reading profile (manual override):
     func edgeDetector(_ detector: EdgeDetector, didEndDragOn edge: TrackpadEdge) {
         NSLog("[APP] ◼ END \(edge)")
         activeDragAction = .disabled
+        CGAssociateMouseAndMouseCursorPosition(1)
+        if let pos = savedCursorPosition {
+            CGWarpMouseCursorPosition(pos)
+            savedCursorPosition = nil
+        }
     }
 }
