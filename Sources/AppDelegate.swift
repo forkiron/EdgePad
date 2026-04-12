@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     // UI
     private let overlay    = OverlayWindow()
-    private let settings   = SettingsPanel()
+    private var trackpadPreview: TrackpadPreviewView?
 
     // State
     private var activeProfile: EdgeProfile = .media
@@ -56,14 +56,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
         setupStatusItem()
         setupKeyMonitor()
-
-        settings.configure(
-            detector: detector,
-            scroll: scroll,
-            volume: volume,
-            brightness: brightness,
-            media: media
-        )
 
         capture.start(routingTo: detector)
 
@@ -123,19 +115,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     private func refreshMenu() {
         let menu = NSMenu()
+        let w: CGFloat = 280
+        menu.minimumWidth = w
 
+        // Header
         let header = NSMenuItem(title: "EdgePad", action: nil, keyEquivalent: "")
         header.isEnabled = false
+        header.attributedTitle = NSAttributedString(
+            string: "EdgePad",
+            attributes: [.font: NSFont.boldSystemFont(ofSize: 14), .foregroundColor: NSColor.labelColor]
+        )
         menu.addItem(header)
-        menu.addItem(NSMenuItem.separator())
+        menu.addItem(.separator())
 
-        let profileHeader = NSMenuItem(title: "Profile", action: nil, keyEquivalent: "")
-        profileHeader.isEnabled = false
-        menu.addItem(profileHeader)
+        // Sensitivity section
+        let sensSection = NSMenuItem()
+        sensSection.view = MenuSectionView(title: "Sensitivity", menuWidth: w)
+        menu.addItem(sensSection)
 
+        addSlider(menu, "Scroll", min: 200, max: 2000,
+                  value: scroll.horizontalSensitivity, width: w) { [weak self] val in
+            self?.scroll.horizontalSensitivity = val
+            self?.scroll.verticalSensitivity = val
+        }
+        addSlider(menu, "Volume", min: 0.3, max: 3.0,
+                  value: volume.sensitivity, width: w) { [weak self] val in
+            self?.volume.sensitivity = val
+        }
+        addSlider(menu, "Brightness", min: 0.3, max: 3.0,
+                  value: brightness.sensitivity, width: w) { [weak self] val in
+            self?.brightness.sensitivity = val
+        }
+        addSlider(menu, "Scrub", min: 0.02, max: 0.15,
+                  value: media.stepSize, width: w) { [weak self] val in
+            self?.media.stepSize = val
+        }
+
+        menu.addItem(.separator())
+
+        // Edge zone section
+        let edgeSection = NSMenuItem()
+        edgeSection.view = MenuSectionView(title: "Edge Zone", menuWidth: w)
+        menu.addItem(edgeSection)
+
+        let edgeSliderView = MenuEdgeSliderView(value: detector.edgeInset, menuWidth: w)
+        let preview = TrackpadPreviewView(frame: NSRect(x: 0, y: 0, width: w, height: 110))
+        preview.edgeInset = CGFloat(detector.edgeInset)
+        trackpadPreview = preview
+
+        edgeSliderView.onValueChanged = { [weak self] pct in
+            self?.detector.edgeInset = pct
+            self?.trackpadPreview?.edgeInset = CGFloat(pct)
+            self?.trackpadPreview?.needsDisplay = true
+        }
+
+        let edgeItem = NSMenuItem()
+        edgeItem.view = edgeSliderView
+        menu.addItem(edgeItem)
+
+        let previewItem = NSMenuItem()
+        previewItem.view = preview
+        menu.addItem(previewItem)
+
+        menu.addItem(.separator())
+
+        // Profile picker
         for preset in EdgeProfilePreset.allCases {
             let item = NSMenuItem(
-                title: "    \(preset.displayName)",
+                title: preset.displayName,
                 action: #selector(selectProfile(_:)),
                 keyEquivalent: ""
             )
@@ -145,21 +192,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             menu.addItem(item)
         }
 
-        menu.addItem(NSMenuItem.separator())
-
-        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
-        settingsItem.target = self
-        menu.addItem(settingsItem)
-
-        let about = NSMenuItem(title: "About EdgePad…", action: #selector(showAbout), keyEquivalent: "")
-        about.target = self
-        menu.addItem(about)
+        menu.addItem(.separator())
 
         let quit = NSMenuItem(title: "Quit EdgePad", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
 
         statusItem.menu = menu
+    }
+
+    private func addSlider(_ menu: NSMenu, _ title: String, min: Float, max: Float,
+                           value: Float, width: CGFloat, onChange: @escaping (Float) -> Void) {
+        let view = MenuSliderView(title: title, min: min, max: max, value: value, menuWidth: width)
+        view.onValueChanged = onChange
+        let item = NSMenuItem()
+        item.view = view
+        menu.addItem(item)
     }
 
     // MARK: - Actions
@@ -172,30 +220,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         refreshStatusIcon()
         refreshMenu()
         NSLog("EdgePad: profile → \(preset.rawValue)")
-    }
-
-    @objc private func openSettings() {
-        settings.toggle()
-    }
-
-    @objc private func showAbout() {
-        let alert = NSAlert()
-        alert.messageText = "EdgePad"
-        alert.informativeText = """
-The Touch Bar Apple killed, built into the trackpad you already have.
-
-Auto profile (default):
-  Detects scrollbars and media playback automatically.
-  Scroll edges activate only when content is scrollable.
-  Media/volume edges activate only when something is playing.
-
-Media profile (manual override):
-  Top → scrub  |  Left → volume  |  Right → brightness  |  Bottom → h-scroll
-
-Reading profile (manual override):
-  Right edge → vertical scroll (replaces brightness)
-"""
-        alert.runModal()
     }
 
     @objc private func quit() {
