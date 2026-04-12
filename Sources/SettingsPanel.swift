@@ -10,7 +10,7 @@ final class MenuSliderView: NSView {
     var onValueChanged: ((Float) -> Void)?
 
     init(title: String, min: Float, max: Float, value: Float,
-         menuWidth: CGFloat = 280, indent: Bool = false) {
+         menuWidth: CGFloat = 280, indent: Bool = false, showArrow: Bool = false) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
 
         let labelX: CGFloat = indent ? 32 : 20
@@ -24,6 +24,7 @@ final class MenuSliderView: NSView {
         label.frame = NSRect(x: labelX, y: 4, width: 76, height: 20)
         addSubview(label)
 
+        let rightPad: CGFloat = showArrow ? 28 : 16
         let sliderX: CGFloat = indent ? 112 : 100
         slider.minValue = Double(min)
         slider.maxValue = Double(max)
@@ -32,9 +33,21 @@ final class MenuSliderView: NSView {
         slider.isContinuous = true
         slider.target = self
         slider.action = #selector(changed(_:))
-        slider.frame = NSRect(x: sliderX, y: 6, width: menuWidth - sliderX - 16, height: 16)
+        slider.frame = NSRect(x: sliderX, y: 6, width: menuWidth - sliderX - rightPad, height: 16)
         slider.trackFillColor = .systemBlue
         addSubview(slider)
+
+        if showArrow {
+            let arrow = NSTextField(labelWithString: "\u{25B8}")
+            arrow.font = .systemFont(ofSize: 10)
+            arrow.textColor = .tertiaryLabelColor
+            arrow.isBezeled = false
+            arrow.drawsBackground = false
+            arrow.isEditable = false
+            arrow.isSelectable = false
+            arrow.frame = NSRect(x: menuWidth - 20, y: 6, width: 14, height: 16)
+            addSubview(arrow)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
