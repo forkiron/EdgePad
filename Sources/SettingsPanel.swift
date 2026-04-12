@@ -49,21 +49,30 @@ final class MenuSliderView: NSView {
     }
 }
 
-// MARK: - Overall sensitivity with disclosure arrow
+// MARK: - Overall sensitivity with disclosure arrow + hover
 
 final class SensitivityHeaderView: NSView {
 
     private let slider = NSSlider()
     private let arrowLabel = NSTextField(labelWithString: "")
+    private let hoverBg = NSView()
     var onValueChanged: ((Float) -> Void)?
     var onDisclosureTapped: (() -> Void)?
     var isExpanded = false {
         didSet { arrowLabel.stringValue = isExpanded ? "\u{25BE}" : "\u{25B8}" }
     }
+    private var trackingArea: NSTrackingArea?
 
     init(value: Float, expanded: Bool, menuWidth: CGFloat = 280) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 30))
         isExpanded = expanded
+
+        // Hover background
+        hoverBg.frame = NSRect(x: 4, y: 1, width: menuWidth - 8, height: 28)
+        hoverBg.wantsLayer = true
+        hoverBg.layer?.cornerRadius = 5
+        hoverBg.layer?.backgroundColor = nil
+        addSubview(hoverBg)
 
         let label = NSTextField(labelWithString: "Overall")
         label.font = .systemFont(ofSize: 13)
@@ -86,10 +95,9 @@ final class SensitivityHeaderView: NSView {
         slider.trackFillColor = .systemBlue
         addSubview(slider)
 
-        // Disclosure arrow button
         arrowLabel.stringValue = expanded ? "\u{25BE}" : "\u{25B8}"
-        arrowLabel.font = .systemFont(ofSize: 11)
-        arrowLabel.textColor = .tertiaryLabelColor
+        arrowLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        arrowLabel.textColor = .secondaryLabelColor
         arrowLabel.alignment = .center
         arrowLabel.isBezeled = false
         arrowLabel.drawsBackground = false
@@ -97,24 +105,34 @@ final class SensitivityHeaderView: NSView {
         arrowLabel.isSelectable = false
         arrowLabel.frame = NSRect(x: menuWidth - 28, y: 5, width: 20, height: 20)
         addSubview(arrowLabel)
-
-        let clickArea = NSButton(frame: NSRect(x: menuWidth - 36, y: 0, width: 36, height: 30))
-        clickArea.title = ""
-        clickArea.isBordered = false
-        clickArea.isTransparent = true
-        clickArea.target = self
-        clickArea.action = #selector(arrowTapped)
-        addSubview(clickArea)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    @objc private func sliderChanged(_ sender: NSSlider) {
-        onValueChanged?(Float(sender.doubleValue))
+    override func updateTrackingAreas() {
+        if let ta = trackingArea { removeTrackingArea(ta) }
+        trackingArea = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self)
+        addTrackingArea(trackingArea!)
     }
 
-    @objc private func arrowTapped() {
-        onDisclosureTapped?()
+    override func mouseEntered(with event: NSEvent) {
+        hoverBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoverBg.layer?.backgroundColor = nil
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        // Only trigger disclosure if clicking near the arrow (right 40px)
+        let loc = convert(event.locationInWindow, from: nil)
+        if loc.x > bounds.width - 40 {
+            onDisclosureTapped?()
+        }
+    }
+
+    @objc private func sliderChanged(_ sender: NSSlider) {
+        onValueChanged?(Float(sender.doubleValue))
     }
 }
 
@@ -171,30 +189,44 @@ final class MenuEdgeSliderView: NSView {
     }
 }
 
-// MARK: - Profile row (custom view so clicking doesn't close menu)
+// MARK: - Profile row (hover + animated checkmark, doesn't close menu)
 
 final class ProfileItemView: NSView {
 
-    private let checkmark = NSTextField(labelWithString: "")
+    private let checkContainer = NSView()
+    private let checkLabel = NSTextField(labelWithString: "")
+    private let hoverBg = NSView()
     var onSelected: (() -> Void)?
+    private var trackingArea: NSTrackingArea?
 
     init(title: String, symbolName: String, isActive: Bool, menuWidth: CGFloat = 280) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
 
-        // Checkmark
-        checkmark.stringValue = isActive ? "\u{2713}" : ""
-        checkmark.font = .systemFont(ofSize: 13, weight: .medium)
-        checkmark.textColor = .labelColor
-        checkmark.isBezeled = false
-        checkmark.drawsBackground = false
-        checkmark.isEditable = false
-        checkmark.isSelectable = false
-        checkmark.frame = NSRect(x: 8, y: 4, width: 16, height: 20)
-        addSubview(checkmark)
+        // Hover background (rounded)
+        hoverBg.frame = NSRect(x: 4, y: 1, width: menuWidth - 8, height: 26)
+        hoverBg.wantsLayer = true
+        hoverBg.layer?.cornerRadius = 5
+        addSubview(hoverBg)
+
+        // Checkmark container (for clip-mask animation)
+        checkContainer.frame = NSRect(x: 6, y: 4, width: isActive ? 16 : 0, height: 20)
+        checkContainer.wantsLayer = true
+        checkContainer.layer?.masksToBounds = true
+        addSubview(checkContainer)
+
+        checkLabel.stringValue = "\u{2713}"
+        checkLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        checkLabel.textColor = .labelColor
+        checkLabel.isBezeled = false
+        checkLabel.drawsBackground = false
+        checkLabel.isEditable = false
+        checkLabel.isSelectable = false
+        checkLabel.frame = NSRect(x: 0, y: 0, width: 16, height: 20)
+        checkContainer.addSubview(checkLabel)
 
         // Icon
         if let img = NSImage(systemSymbolName: symbolName, accessibilityDescription: title) {
-            let iv = NSImageView(frame: NSRect(x: 28, y: 4, width: 18, height: 18))
+            let iv = NSImageView(frame: NSRect(x: 26, y: 5, width: 16, height: 16))
             iv.image = img
             iv.contentTintColor = .secondaryLabelColor
             addSubview(iv)
@@ -208,24 +240,43 @@ final class ProfileItemView: NSView {
         label.drawsBackground = false
         label.isEditable = false
         label.isSelectable = false
-        label.frame = NSRect(x: 52, y: 4, width: menuWidth - 68, height: 20)
+        label.frame = NSRect(x: 48, y: 4, width: menuWidth - 64, height: 20)
         addSubview(label)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
+    override func updateTrackingAreas() {
+        if let ta = trackingArea { removeTrackingArea(ta) }
+        trackingArea = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self)
+        addTrackingArea(trackingArea!)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hoverBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoverBg.layer?.backgroundColor = nil
+    }
+
     override func mouseUp(with event: NSEvent) {
-        // Highlight briefly
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.layer?.backgroundColor = nil
-        }
         onSelected?()
     }
 
+    /// Animate checkmark reveal (left-to-right clip expansion)
     func setActive(_ active: Bool) {
-        checkmark.stringValue = active ? "\u{2713}" : ""
+        let targetWidth: CGFloat = active ? 16 : 0
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.2
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            checkContainer.animator().frame = NSRect(
+                x: checkContainer.frame.origin.x,
+                y: checkContainer.frame.origin.y,
+                width: targetWidth,
+                height: checkContainer.frame.height
+            )
+        }
     }
 }
 
