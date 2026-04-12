@@ -38,7 +38,7 @@ final class MenuSliderView: NSView {
         slider.target = self
         slider.action = #selector(changed(_:))
         slider.frame = NSRect(x: sliderX, y: 7, width: menuWidth - sliderX - 16, height: 16)
-        slider.trackFillColor = .controlAccentColor
+        slider.trackFillColor = .systemBlue
         addSubview(slider)
     }
 
@@ -83,7 +83,7 @@ final class SensitivityHeaderView: NSView {
         slider.target = self
         slider.action = #selector(sliderChanged(_:))
         slider.frame = NSRect(x: 86, y: 7, width: menuWidth - 126, height: 16)
-        slider.trackFillColor = .controlAccentColor
+        slider.trackFillColor = .systemBlue
         addSubview(slider)
 
         // Disclosure arrow button
@@ -147,7 +147,7 @@ final class MenuEdgeSliderView: NSView {
         slider.target = self
         slider.action = #selector(changed(_:))
         slider.frame = NSRect(x: 76, y: 7, width: menuWidth - 136, height: 16)
-        slider.trackFillColor = .controlAccentColor
+        slider.trackFillColor = .systemBlue
         addSubview(slider)
 
         pctLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
