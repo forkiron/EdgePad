@@ -1,12 +1,10 @@
 // ContextDetector.swift
 //
-// Detects current app context to dynamically resolve edge actions.
+// Detects current app context using the same mechanism as the Touch Bar:
+// observe MediaRemote notifications for playback state changes.
+// No polling, no async block callbacks — pure NotificationCenter.
 //
-// Media: synchronous query via MediaRemote framework at drag-begin.
-// Falls back to checking if frontmost app is a known media player.
-//
-// Scrollbars: queries Accessibility API for scroll areas in the
-// focused window. Falls back to known-scrollable apps (browsers, etc).
+// Scrollbars: Accessibility API with fallback to known-scrollable apps.
 
 import AppKit
 import ApplicationServices
@@ -16,29 +14,13 @@ import CoreGraphics
 @MainActor
 final class ContextDetector: @unchecked Sendable {
 
+    /// Updated by MediaRemote notifications (same feed as Touch Bar).
+    private(set) var isMediaPlaying = false
+
     private var mrHandle: UnsafeMutableRawPointer?
-    private typealias MRGetIsPlayingFn = @convention(c) (DispatchQueue, AnyObject) -> Void
-    private var getIsPlayingFn: MRGetIsPlayingFn?
-
-    private let mediaCheckQueue = DispatchQueue(label: "com.edgepad.media-check")
-
-    private static let mediaApps: Set<String> = [
-        "com.apple.Music",
-        "com.spotify.client",
-        "com.apple.QuickTimePlayerX",
-        "org.videolan.vlc",
-        "com.colliderli.iina",
-        "com.apple.TV",
-        "com.apple.podcasts",
-        "com.apple.Safari",
-        "com.google.Chrome",
-        "org.mozilla.firefox",
-        "com.brave.Browser",
-        "com.microsoft.edgemac",
-    ]
 
     init() {
-        loadMediaRemote()
+        setupMediaRemote()
     }
 
     func stop() {}
@@ -46,7 +28,7 @@ final class ContextDetector: @unchecked Sendable {
     // MARK: - Edge action resolution
 
     func resolveAction(for edge: TrackpadEdge) -> EdgeAction {
-        let media = checkMediaPlaying()
+        let media = isMediaPlaying
         let action: EdgeAction
         switch edge {
         case .top:
@@ -64,54 +46,116 @@ final class ContextDetector: @unchecked Sendable {
                 action = media ? .brightness : .disabled
             }
         }
-        NSLog("[CTX] resolve \(edge.rawValue) -> \(action.rawValue) (media=\(media))")
+        NSLog("[CTX] \(edge.rawValue) -> \(action.rawValue) media=\(media)")
         return action
     }
 
-    // MARK: - Media detection
+    // MARK: - Media detection (notification-based, same as Touch Bar)
 
-    /// Synchronous media check. Blocks main thread for <10ms typical,
-    /// 100ms worst case (timeout). Called once per drag-begin.
-    private func checkMediaPlaying() -> Bool {
-        if let fn = getIsPlayingFn {
-            var result = false
-            let sem = DispatchSemaphore(value: 0)
-            let block: @convention(block) (Bool) -> Void = { playing in
-                result = playing
-                sem.signal()
-            }
-            fn(mediaCheckQueue, block as AnyObject)
-            if sem.wait(timeout: .now() + 0.1) == .success {
-                NSLog("[CTX] MediaRemote playing=\(result)")
-                return result
-            }
-            NSLog("[CTX] MediaRemote timed out, trying bundle ID fallback")
+    private func setupMediaRemote() {
+        guard let h = dlopen(
+            "/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote",
+            RTLD_LAZY
+        ) else {
+            NSLog("[CTX] could not load MediaRemote")
+            return
+        }
+        mrHandle = h
+        NSLog("[CTX] loaded MediaRemote")
+
+        // Register for now-playing notifications.
+        // This is the same call the Touch Bar makes — it tells the framework
+        // to start posting notifications to this process. Takes only a
+        // DispatchQueue, no block parameter, so no escaping issues.
+        if let sym = dlsym(h, "MRMediaRemoteRegisterForNowPlayingNotifications") {
+            let fn = unsafeBitCast(sym, to: (@convention(c) (DispatchQueue) -> Void).self)
+            fn(DispatchQueue.main)
+            NSLog("[CTX] registered for now-playing notifications")
         }
 
-        // Fallback: is the frontmost app a known media-capable app?
-        let fallback = isMediaAppFrontmost()
-        NSLog("[CTX] bundle ID fallback: \(fallback)")
-        return fallback
+        // Observe playback state changes (play/pause/stop).
+        // Extract Sendable values before crossing actor boundary.
+        observeSymbol(h, "kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification") { [weak self] notif in
+            var playing: Bool?
+            if let info = notif.userInfo {
+                for (_, val) in info {
+                    if let b = val as? Bool { playing = b; break }
+                    if let n = val as? NSNumber { playing = n.boolValue; break }
+                }
+            }
+            let desc = notif.userInfo.map { "\($0)" } ?? "(nil)"
+            Task { @MainActor in
+                NSLog("[CTX] playback notification: \(desc.prefix(200))")
+                if let playing {
+                    self?.isMediaPlaying = playing
+                    NSLog("[CTX] -> isMediaPlaying = \(playing)")
+                }
+            }
+        }
+
+        // Observe now-playing info changes (track change, rate change)
+        observeSymbol(h, "kMRMediaRemoteNowPlayingInfoDidChangeNotification") { [weak self] notif in
+            var rate: Double?
+            if let info = notif.userInfo {
+                for (key, val) in info {
+                    if "\(key)".contains("PlaybackRate"), let n = val as? NSNumber {
+                        rate = n.doubleValue
+                        break
+                    }
+                }
+            }
+            Task { @MainActor in
+                if let rate {
+                    let playing = rate > 0
+                    self?.isMediaPlaying = playing
+                    NSLog("[CTX] info notification: rate=\(rate) -> playing=\(playing)")
+                }
+            }
+        }
+
+        // Observe now-playing app changes (new app takes over media)
+        observeSymbol(h, "kMRMediaRemoteNowPlayingApplicationDidChangeNotification") { _ in
+            Task { @MainActor in
+                NSLog("[CTX] now-playing app changed")
+            }
+        }
     }
 
-    private func isMediaAppFrontmost() -> Bool {
-        guard let bid = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
-            return false
+    /// Load a CFString symbol from the framework and observe it as a
+    /// notification name on the default NotificationCenter.
+    private func observeSymbol(
+        _ handle: UnsafeMutableRawPointer,
+        _ symbolName: String,
+        handler: @escaping @Sendable (Notification) -> Void
+    ) {
+        guard let sym = dlsym(handle, symbolName) else {
+            NSLog("[CTX] missing symbol: \(symbolName)")
+            return
         }
-        return Self.mediaApps.contains(bid)
+        // dlsym returns a pointer TO the CFStringRef global variable.
+        // Dereference once to get the actual string.
+        let rawPtr = sym.load(as: UnsafeRawPointer.self)
+        let name = Unmanaged<NSString>.fromOpaque(rawPtr).takeUnretainedValue() as String
+        NSLog("[CTX] observing \(symbolName) = \"\(name)\"")
+
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name(name),
+            object: nil,
+            queue: .main
+        ) { notif in
+            handler(notif)
+        }
     }
 
     // MARK: - Scrollbar detection
 
-    /// Check for scrollbars. Tries Accessibility API first, falls back
-    /// to known-scrollable apps if AX fails.
     private func detectScrollBars() -> (horizontal: Bool, vertical: Bool) {
         if let result = scrollBarsViaAX() {
             return result
         }
-        // AX failed — browsers and similar apps are typically scrollable
+        // AX failed — browsers are typically scrollable
         if isKnownScrollableApp() {
-            NSLog("[CTX] AX failed but app is known scrollable — assuming both scrollbars")
+            NSLog("[CTX] AX failed, app is known scrollable")
             return (true, true)
         }
         return (false, false)
@@ -133,11 +177,9 @@ final class ContextDetector: @unchecked Sendable {
         return scrollableApps.contains(bid)
     }
 
-    /// Query Accessibility API for scroll areas in the focused window.
-    /// Returns nil if the AX query fails entirely (permission issue, etc).
     private func scrollBarsViaAX() -> (horizontal: Bool, vertical: Bool)? {
         let frontApp = NSWorkspace.shared.frontmostApplication
-        NSLog("[CTX] AX: checking \(frontApp?.localizedName ?? "?") (\(frontApp?.bundleIdentifier ?? "?"))")
+        NSLog("[CTX] AX: app=\(frontApp?.localizedName ?? "?") (\(frontApp?.bundleIdentifier ?? "?"))")
 
         let systemWide = AXUIElementCreateSystemWide()
 
@@ -146,7 +188,7 @@ final class ContextDetector: @unchecked Sendable {
             systemWide, "AXFocusedApplication" as CFString, &appRef
         )
         guard appErr == .success else {
-            NSLog("[CTX] AX: AXFocusedApplication failed err=\(appErr.rawValue)")
+            NSLog("[CTX] AX: AXFocusedApplication err=\(appErr.rawValue)")
             return nil
         }
         let app = appRef as! AXUIElement
@@ -156,7 +198,7 @@ final class ContextDetector: @unchecked Sendable {
             app, "AXFocusedWindow" as CFString, &winRef
         )
         guard winErr == .success else {
-            NSLog("[CTX] AX: AXFocusedWindow failed err=\(winErr.rawValue)")
+            NSLog("[CTX] AX: AXFocusedWindow err=\(winErr.rawValue)")
             return nil
         }
         let window = winRef as! AXUIElement
@@ -197,26 +239,6 @@ final class ContextDetector: @unchecked Sendable {
         for child in children {
             findScrollBars(in: child, depth: depth + 1, hasH: &hasH, hasV: &hasV)
             if hasH && hasV { return }
-        }
-    }
-
-    // MARK: - MediaRemote framework
-
-    private func loadMediaRemote() {
-        guard let h = dlopen(
-            "/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote",
-            RTLD_LAZY
-        ) else {
-            NSLog("[CTX] could not load MediaRemote")
-            return
-        }
-        mrHandle = h
-
-        if let sym = dlsym(h, "MRMediaRemoteGetNowPlayingApplicationIsPlaying") {
-            getIsPlayingFn = unsafeBitCast(sym, to: MRGetIsPlayingFn.self)
-            NSLog("[CTX] loaded MediaRemote")
-        } else {
-            NSLog("[CTX] missing MRMediaRemoteGetNowPlayingApplicationIsPlaying")
         }
     }
 }
