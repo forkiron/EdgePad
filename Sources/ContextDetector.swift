@@ -1,10 +1,10 @@
 // ContextDetector.swift
 //
-// Detects current app context using the same mechanism as the Touch Bar:
-// observe MediaRemote notifications for playback state changes.
-// No polling, no async block callbacks — pure NotificationCenter.
+// Media: queries MRMediaRemoteGetNowPlayingInfo via CFRunLoop (same data
+// the Touch Bar reads). Also observes notifications on BOTH default and
+// distributed NotificationCenter. Polls every 2s as belt-and-suspenders.
 //
-// Scrollbars: Accessibility API with fallback to known-scrollable apps.
+// Scrollbars: Accessibility API with browser fallback.
 
 import AppKit
 import ApplicationServices
@@ -14,16 +14,21 @@ import CoreGraphics
 @MainActor
 final class ContextDetector: @unchecked Sendable {
 
-    /// Updated by MediaRemote notifications (same feed as Touch Bar).
     private(set) var isMediaPlaying = false
 
     private var mrHandle: UnsafeMutableRawPointer?
+    private typealias MRGetInfoFn = @convention(c) (DispatchQueue, AnyObject) -> Void
+    private var getInfoFn: MRGetInfoFn?
+    private var pollTimer: Timer?
 
     init() {
         setupMediaRemote()
     }
 
-    func stop() {}
+    func stop() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
 
     // MARK: - Edge action resolution
 
@@ -50,7 +55,7 @@ final class ContextDetector: @unchecked Sendable {
         return action
     }
 
-    // MARK: - Media detection (notification-based, same as Touch Bar)
+    // MARK: - Media detection
 
     private func setupMediaRemote() {
         guard let h = dlopen(
@@ -63,87 +68,92 @@ final class ContextDetector: @unchecked Sendable {
         mrHandle = h
         NSLog("[CTX] loaded MediaRemote")
 
-        // Register for now-playing notifications.
-        // This is the same call the Touch Bar makes — it tells the framework
-        // to start posting notifications to this process. Takes only a
-        // DispatchQueue, no block parameter, so no escaping issues.
+        // Load MRMediaRemoteGetNowPlayingInfo — returns the full now-playing
+        // dictionary including playback rate. This is the same data source
+        // the Touch Bar and Control Center read.
+        if let sym = dlsym(h, "MRMediaRemoteGetNowPlayingInfo") {
+            getInfoFn = unsafeBitCast(sym, to: MRGetInfoFn.self)
+            NSLog("[CTX] loaded MRMediaRemoteGetNowPlayingInfo")
+        }
+
+        // Register for notifications
         if let sym = dlsym(h, "MRMediaRemoteRegisterForNowPlayingNotifications") {
             let fn = unsafeBitCast(sym, to: (@convention(c) (DispatchQueue) -> Void).self)
             fn(DispatchQueue.main)
             NSLog("[CTX] registered for now-playing notifications")
         }
 
-        // Observe playback state changes (play/pause/stop).
-        // Extract Sendable values before crossing actor boundary.
-        observeSymbol(h, "kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification") { [weak self] notif in
-            var playing: Bool?
-            if let info = notif.userInfo {
-                for (_, val) in info {
-                    if let b = val as? Bool { playing = b; break }
-                    if let n = val as? NSNumber { playing = n.boolValue; break }
-                }
+        // Observe on BOTH notification centers — some macOS versions
+        // post to default, others to distributed
+        let notifSymbols = [
+            "kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification",
+            "kMRMediaRemoteNowPlayingInfoDidChangeNotification",
+            "kMRMediaRemoteNowPlayingApplicationDidChangeNotification",
+        ]
+        for symbolName in notifSymbols {
+            guard let sym = dlsym(h, symbolName) else { continue }
+            let rawPtr = sym.load(as: UnsafeRawPointer.self)
+            let name = Unmanaged<NSString>.fromOpaque(rawPtr).takeUnretainedValue() as String
+            NSLog("[CTX] observing \(symbolName) = \"\(name)\"")
+
+            // Default NotificationCenter
+            NotificationCenter.default.addObserver(
+                forName: NSNotification.Name(name),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                NSLog("[CTX] notification (default): \(symbolName)")
+                Task { @MainActor in self?.pollNowPlaying() }
             }
-            let desc = notif.userInfo.map { "\($0)" } ?? "(nil)"
-            Task { @MainActor in
-                NSLog("[CTX] playback notification: \(desc.prefix(200))")
-                if let playing {
-                    self?.isMediaPlaying = playing
-                    NSLog("[CTX] -> isMediaPlaying = \(playing)")
-                }
+
+            // Distributed NotificationCenter
+            DistributedNotificationCenter.default().addObserver(
+                forName: NSNotification.Name(name),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                NSLog("[CTX] notification (distributed): \(symbolName)")
+                Task { @MainActor in self?.pollNowPlaying() }
             }
         }
 
-        // Observe now-playing info changes (track change, rate change)
-        observeSymbol(h, "kMRMediaRemoteNowPlayingInfoDidChangeNotification") { [weak self] notif in
-            var rate: Double?
-            if let info = notif.userInfo {
-                for (key, val) in info {
-                    if "\(key)".contains("PlaybackRate"), let n = val as? NSNumber {
-                        rate = n.doubleValue
-                        break
-                    }
-                }
-            }
-            Task { @MainActor in
-                if let rate {
-                    let playing = rate > 0
-                    self?.isMediaPlaying = playing
-                    NSLog("[CTX] info notification: rate=\(rate) -> playing=\(playing)")
-                }
-            }
-        }
-
-        // Observe now-playing app changes (new app takes over media)
-        observeSymbol(h, "kMRMediaRemoteNowPlayingApplicationDidChangeNotification") { _ in
-            Task { @MainActor in
-                NSLog("[CTX] now-playing app changed")
-            }
+        // Initial query + periodic poll (2s) as backup if notifications miss
+        pollNowPlaying()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.pollNowPlaying() }
         }
     }
 
-    /// Load a CFString symbol from the framework and observe it as a
-    /// notification name on the default NotificationCenter.
-    private func observeSymbol(
-        _ handle: UnsafeMutableRawPointer,
-        _ symbolName: String,
-        handler: @escaping @Sendable (Notification) -> Void
-    ) {
-        guard let sym = dlsym(handle, symbolName) else {
-            NSLog("[CTX] missing symbol: \(symbolName)")
-            return
-        }
-        // dlsym returns a pointer TO the CFStringRef global variable.
-        // Dereference once to get the actual string.
-        let rawPtr = sym.load(as: UnsafeRawPointer.self)
-        let name = Unmanaged<NSString>.fromOpaque(rawPtr).takeUnretainedValue() as String
-        NSLog("[CTX] observing \(symbolName) = \"\(name)\"")
+    /// Query MRMediaRemoteGetNowPlayingInfo synchronously via CFRunLoop.
+    /// The callback fires on the main run loop within ~5ms. We spin the
+    /// run loop briefly to let it through.
+    private func pollNowPlaying() {
+        guard let fn = getInfoFn else { return }
 
-        NotificationCenter.default.addObserver(
-            forName: NSNotification.Name(name),
-            object: nil,
-            queue: .main
-        ) { notif in
-            handler(notif)
+        var rate: Double?
+        var done = false
+
+        let block: @convention(block) (NSDictionary?) -> Void = { dict in
+            done = true
+            if let r = dict?["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? Double {
+                rate = r
+            }
+        }
+
+        let blockObj = block as AnyObject
+        withExtendedLifetime(blockObj) {
+            fn(DispatchQueue.main, blockObj)
+            if !done {
+                CFRunLoopRunInMode(.defaultMode, 0.05, false)
+            }
+        }
+
+        if done {
+            let playing = (rate ?? 0) > 0
+            if playing != isMediaPlaying {
+                NSLog("[CTX] media state changed: playing=\(playing) rate=\(rate ?? 0)")
+            }
+            isMediaPlaying = playing
         }
     }
 
@@ -153,9 +163,7 @@ final class ContextDetector: @unchecked Sendable {
         if let result = scrollBarsViaAX() {
             return result
         }
-        // AX failed — browsers are typically scrollable
         if isKnownScrollableApp() {
-            NSLog("[CTX] AX failed, app is known scrollable")
             return (true, true)
         }
         return (false, false)
@@ -178,9 +186,6 @@ final class ContextDetector: @unchecked Sendable {
     }
 
     private func scrollBarsViaAX() -> (horizontal: Bool, vertical: Bool)? {
-        let frontApp = NSWorkspace.shared.frontmostApplication
-        NSLog("[CTX] AX: app=\(frontApp?.localizedName ?? "?") (\(frontApp?.bundleIdentifier ?? "?"))")
-
         let systemWide = AXUIElementCreateSystemWide()
 
         var appRef: CFTypeRef?
@@ -206,7 +211,6 @@ final class ContextDetector: @unchecked Sendable {
         var hasH = false
         var hasV = false
         findScrollBars(in: window, depth: 0, hasH: &hasH, hasV: &hasV)
-        NSLog("[CTX] AX: scrollBars h=\(hasH) v=\(hasV)")
         return (hasH, hasV)
     }
 

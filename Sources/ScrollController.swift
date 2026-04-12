@@ -17,8 +17,8 @@ public final class ScrollController {
     /// How many pixels of scroll output per unit of edge delta.
     /// Trackpad delta [0, 1] = full edge travel; screen width ~1600px
     /// means a full-edge drag = ~3200px of scroll at sensitivity 2.0.
-    public var horizontalSensitivity: Float = 2000
-    public var verticalSensitivity: Float = 2000
+    public var horizontalSensitivity: Float = 800
+    public var verticalSensitivity: Float = 800
 
     // Track the last delta we emitted so we can send INCREMENTAL scroll
     // steps rather than absolute-from-start. Edge drags give us absolute
