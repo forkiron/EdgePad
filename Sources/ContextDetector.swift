@@ -47,19 +47,19 @@ final class ContextDetector: @unchecked Sendable {
         let action: EdgeAction
         switch edge {
         case .top:
-            action = isMediaPlaying ? .mediaScrub : .disabled
+            // Arrow keys are harmless in non-media apps — always enabled
+            action = .mediaScrub
         case .left:
-            action = isMediaPlaying ? .volume : .disabled
+            // Volume control is universally useful — always enabled
+            action = .volume
         case .bottom:
+            // H-scroll only makes sense when content overflows horizontally
             let (h, _) = scrollBarsInFocusedWindow()
             action = h ? .scrollHorizontal : .disabled
         case .right:
+            // Upgrade from brightness to vertical scroll when scrollbar detected
             let (_, v) = scrollBarsInFocusedWindow()
-            if v {
-                action = .scrollVertical
-            } else {
-                action = isMediaPlaying ? .brightness : .disabled
-            }
+            action = v ? .scrollVertical : .brightness
         }
         NSLog("[CTX] resolve \(edge.rawValue) -> \(action.rawValue) (media=\(isMediaPlaying))")
         return action
