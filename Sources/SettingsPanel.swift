@@ -92,23 +92,13 @@ final class SensitivityDropdownView: NSView {
         slider.trackFillColor = .systemBlue
         addSubview(slider)
 
-        // Chevron circle
-        let sz: CGFloat = 22
-        let cx = menuWidth - sz - 10
-        let cy = (32 - sz) / 2
-        chevronBg.frame = NSRect(x: cx, y: cy, width: sz, height: sz)
-        chevronBg.wantsLayer = true
-        chevronBg.layer?.cornerRadius = sz / 2
-        chevronBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
-        addSubview(chevronBg)
-
-        // SF Symbol chevron
+        // SF Symbol chevron (no circle bg)
         let symbolName = expanded ? "chevron.up" : "chevron.down"
-        let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         chevronImage.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(config)
         chevronImage.contentTintColor = .secondaryLabelColor
-        chevronImage.frame = NSRect(x: cx + 4, y: cy + 4, width: sz - 8, height: sz - 8)
+        chevronImage.frame = NSRect(x: menuWidth - 28, y: 8, width: 16, height: 16)
         addSubview(chevronImage)
     }
 
@@ -133,12 +123,10 @@ final class SensitivityDropdownView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         hoverBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.06).cgColor
-        chevronBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.18).cgColor
     }
 
     override func mouseExited(with event: NSEvent) {
         hoverBg.layer?.backgroundColor = nil
-        chevronBg.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
     }
 
     override func mouseUp(with event: NSEvent) {
