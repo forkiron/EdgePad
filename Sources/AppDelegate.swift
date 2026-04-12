@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     private let capture  = MultitouchCapture()
     private let detector = EdgeDetector()
 
+    // Context detection (for Auto profile)
+    private let context = ContextDetector()
+
     // System controllers
     private let volume     = VolumeController()
     private let brightness = BrightnessController()
@@ -29,7 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     // State
     private var activeProfile: EdgeProfile = .media
-    private var activePreset: EdgeProfilePreset = .media
+    private var activePreset: EdgeProfilePreset = .auto
+    private var activeDragAction: EdgeAction = .disabled
 
     // Global key monitor for typing suppression
     private var keyMonitor: Any?
@@ -54,11 +58,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         capture.start(routingTo: detector)
 
         NSLog("[APP] running — profile=\(activePreset.rawValue)")
-        NSLog("[APP] Active profile map:")
-        NSLog("[APP]   top:    \(activeProfile.top.rawValue)")
-        NSLog("[APP]   bottom: \(activeProfile.bottom.rawValue)")
-        NSLog("[APP]   left:   \(activeProfile.left.rawValue)")
-        NSLog("[APP]   right:  \(activeProfile.right.rawValue)")
+        if activePreset == .auto {
+            NSLog("[APP] Auto profile: edges resolved dynamically from context")
+        } else {
+            NSLog("[APP] Active profile map:")
+            NSLog("[APP]   top:    \(activeProfile.top.rawValue)")
+            NSLog("[APP]   bottom: \(activeProfile.bottom.rawValue)")
+            NSLog("[APP]   left:   \(activeProfile.left.rawValue)")
+            NSLog("[APP]   right:  \(activeProfile.right.rawValue)")
+        }
         NSLog("[APP] Ready — go touch a trackpad edge")
         NSLog("========================================")
     }
@@ -79,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         capture.stop()
+        context.stop()
         if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -94,7 +103,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     private func refreshStatusIcon() {
         guard let button = statusItem.button else { return }
-        button.title = activePreset == .media ? "◱" : "◨"
+        switch activePreset {
+        case .auto:    button.title = "◉"
+        case .media:   button.title = "◱"
+        case .reading: button.title = "◨"
+        }
         button.toolTip = "EdgePad — \(activePreset.displayName)"
     }
 
@@ -153,17 +166,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         alert.informativeText = """
 The Touch Bar Apple killed, built into the trackpad you already have.
 
-Media profile:
-  Top edge    →  video scrub (←/→ keys)
-  Left edge   →  volume
-  Right edge  →  brightness
-  Bottom edge →  horizontal scroll
+Auto profile (default):
+  Detects scrollbars and media playback automatically.
+  Scroll edges activate only when content is scrollable.
+  Media/volume edges activate only when something is playing.
 
-Reading profile:
-  Right edge  →  vertical scroll (replaces brightness)
-  (everything else the same)
+Media profile (manual override):
+  Top → scrub  |  Left → volume  |  Right → brightness  |  Bottom → h-scroll
 
-Toggle profiles from this menu.
+Reading profile (manual override):
+  Right edge → vertical scroll (replaces brightness)
 """
         alert.runModal()
     }
@@ -185,7 +197,13 @@ Toggle profiles from this menu.
     // MARK: - EdgeDetectorDelegate
 
     func edgeDetector(_ detector: EdgeDetector, didBeginDragOn edge: TrackpadEdge, at position: Float) {
-        let action = activeProfile.action(for: edge)
+        let action: EdgeAction
+        if activePreset == .auto {
+            action = context.resolveAction(for: edge)
+        } else {
+            action = activeProfile.action(for: edge)
+        }
+        activeDragAction = action
         NSLog("[APP] ▶ BEGIN \(edge) → action=\(action.rawValue)")
         switch action {
         case .volume:
@@ -211,8 +229,7 @@ Toggle profiles from this menu.
     }
 
     func edgeDetector(_ detector: EdgeDetector, didUpdate event: EdgeDragEvent) {
-        let action = activeProfile.action(for: event.edge)
-        switch action {
+        switch activeDragAction {
         case .volume:
             let new = volume.applyDelta(event.delta)
             NSLog("[APP] \(event.edge) vol delta=\(String(format: "%.3f", event.delta)) → \(String(format: "%.3f", new))")
@@ -237,5 +254,6 @@ Toggle profiles from this menu.
 
     func edgeDetector(_ detector: EdgeDetector, didEndDragOn edge: TrackpadEdge) {
         NSLog("[APP] ◼ END \(edge)")
+        activeDragAction = .disabled
     }
 }

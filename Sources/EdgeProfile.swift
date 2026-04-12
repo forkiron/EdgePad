@@ -73,11 +73,13 @@ public struct EdgeProfile: Sendable, Equatable {
 }
 
 public enum EdgeProfilePreset: String, CaseIterable, Sendable {
+    case auto
     case media
     case reading
 
     public var profile: EdgeProfile {
         switch self {
+        case .auto:    return .media  // fallback; auto uses ContextDetector
         case .media:   return .media
         case .reading: return .reading
         }
@@ -85,6 +87,7 @@ public enum EdgeProfilePreset: String, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
+        case .auto:    return "Auto"
         case .media:   return "Media"
         case .reading: return "Reading"
         }

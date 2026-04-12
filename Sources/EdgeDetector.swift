@@ -46,6 +46,19 @@ public final class EdgeDetector {
     /// by typing; this only gates new drags.
     public var typingSuppressionWindow: TimeInterval = 0.30
 
+    // MARK: - Intent detection
+    // Rejects navigation gestures (e.g. swiping toward a button) that
+    // happen to cross an edge zone. Analyzes velocity and direction
+    // relative to the edge before activating a drag.
+
+    /// Maximum velocity (normalized trackpad units/sec) for a gesture
+    /// to be considered deliberate edge control. Faster = navigation.
+    public var intentVelocityThreshold: Float = 2.5
+
+    /// If perpendicular movement exceeds parallel × this ratio, the
+    /// gesture is heading away from the edge — navigation, not control.
+    public var intentDirectionRatio: Float = 1.5
+
     // MARK: - State
 
     private var activeEdge: TrackpadEdge?
@@ -54,6 +67,13 @@ public final class EdgeDetector {
     private var lastEmittedPosition: Float = 0
     private var pastDeadZone: Bool = false
     private var lastKeyDownTime: TimeInterval = -.infinity
+
+    private struct CandidateFrame {
+        let x: Float
+        let y: Float
+        let time: Double
+    }
+    private var candidateFrames: [CandidateFrame] = []
 
     public init() {}
 
@@ -93,6 +113,7 @@ public final class EdgeDetector {
         startPosition = axisPosition(for: edge, x: sample.x, y: sample.y)
         lastEmittedPosition = startPosition
         pastDeadZone = false
+        candidateFrames = [CandidateFrame(x: sample.x, y: sample.y, time: sample.timestamp)]
     }
 
     public func handleMultiFinger() {
@@ -113,6 +134,7 @@ public final class EdgeDetector {
         activeEdge = nil
         activeTouchID = nil
         pastDeadZone = false
+        candidateFrames.removeAll()
     }
 
     // MARK: - Internals
@@ -122,9 +144,27 @@ public final class EdgeDetector {
         let delta = pos - startPosition
 
         if !pastDeadZone {
+            candidateFrames.append(CandidateFrame(x: sample.x, y: sample.y, time: sample.timestamp))
+
+            // Finger left edge zone within first few frames → navigation
+            if candidateFrames.count <= 6, classify(x: sample.x, y: sample.y) != edge {
+                NSLog("[EDGE] intent: finger left \(edge) zone early — navigation")
+                cancelCandidate()
+                return
+            }
+
+            // Not enough parallel travel yet
             if abs(delta) < deadZone { return }
+
+            // Intent analysis: reject fast or perpendicular gestures
+            if candidateFrames.count >= 3, !looksDeliberate(on: edge) {
+                cancelCandidate()
+                return
+            }
+
             pastDeadZone = true
-            NSLog("[EDGE] BEGIN drag on \(edge) at startPos=\(String(format: "%.3f", startPosition)) (passed dead zone \(deadZone))")
+            candidateFrames.removeAll()
+            NSLog("[EDGE] BEGIN drag on \(edge) at startPos=\(String(format: "%.3f", startPosition)) (passed dead zone + intent)")
             delegate?.edgeDetector(self, didBeginDragOn: edge, at: startPosition)
         }
 
@@ -136,15 +176,74 @@ public final class EdgeDetector {
         delegate?.edgeDetector(self, didUpdate: event)
     }
 
+    private func cancelCandidate() {
+        if let edge = activeEdge {
+            NSLog("[EDGE] candidate on \(edge) cancelled (navigation intent)")
+        }
+        activeEdge = nil
+        activeTouchID = nil
+        pastDeadZone = false
+        candidateFrames.removeAll()
+    }
+
+    /// Analyze candidate frames to determine if the gesture looks like
+    /// deliberate edge control (slow, parallel to edge) vs cursor
+    /// navigation (fast, perpendicular to edge).
+    private func looksDeliberate(on edge: TrackpadEdge) -> Bool {
+        guard candidateFrames.count >= 3 else { return true }
+        let first = candidateFrames[0]
+        let last = candidateFrames[candidateFrames.count - 1]
+
+        let dx = last.x - first.x
+        let dy = last.y - first.y
+        let dist = sqrt(dx * dx + dy * dy)
+
+        // Velocity from the most recent segment (last 3 frames)
+        let recentIdx = max(0, candidateFrames.count - 3)
+        let recent = candidateFrames[recentIdx]
+        let rdt = last.time - recent.time
+        if rdt > 0.01 {
+            let rdx = last.x - recent.x
+            let rdy = last.y - recent.y
+            let rDist = sqrt(rdx * rdx + rdy * rdy)
+            let velocity = rDist / Float(rdt)
+            if velocity > intentVelocityThreshold {
+                NSLog("[EDGE] intent: velocity \(String(format: "%.1f", velocity)) > \(intentVelocityThreshold)")
+                return false
+            }
+        }
+
+        // Direction: movement should be along the edge, not across it
+        let parallel: Float
+        let perpendicular: Float
+        switch edge {
+        case .top, .bottom:
+            parallel = abs(dx)
+            perpendicular = abs(dy)
+        case .left, .right:
+            parallel = abs(dy)
+            perpendicular = abs(dx)
+        }
+
+        if dist > 0.01, perpendicular > parallel * intentDirectionRatio {
+            NSLog("[EDGE] intent: perp \(String(format: "%.3f", perpendicular)) > par \(String(format: "%.3f", parallel)) x \(intentDirectionRatio)")
+            return false
+        }
+
+        return true
+    }
+
     private func endActiveDrag() {
         guard let edge = activeEdge else {
             activeTouchID = nil
+            candidateFrames.removeAll()
             return
         }
         let wasReal = pastDeadZone
         activeEdge = nil
         activeTouchID = nil
         pastDeadZone = false
+        candidateFrames.removeAll()
         if wasReal {
             NSLog("[EDGE] END drag on \(edge)")
             delegate?.edgeDetector(self, didEndDragOn: edge)
