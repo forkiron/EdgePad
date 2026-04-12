@@ -208,28 +208,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
         menu.addItem(.separator())
 
-        // -- Mode --
+        // -- Mode (custom views so clicking doesn't close menu) --
         let modeSection = NSMenuItem()
         modeSection.view = MenuSectionView(title: "Mode", menuWidth: w)
         menu.addItem(modeSection)
 
+        var profileViews: [EdgeProfilePreset: ProfileItemView] = [:]
         for preset in EdgeProfilePreset.allCases {
-            let item = NSMenuItem(
-                title: preset.displayName,
-                action: #selector(selectProfile(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = preset.rawValue
-            item.state = (preset == activePreset) ? .on : .off
-
             let symbolName: String
             switch preset {
             case .auto:    symbolName = "wand.and.stars"
             case .media:   symbolName = "play.fill"
             case .reading: symbolName = "book.fill"
             }
-            item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: preset.displayName)
+            let view = ProfileItemView(
+                title: preset.displayName,
+                symbolName: symbolName,
+                isActive: preset == activePreset,
+                menuWidth: w
+            )
+            view.onSelected = { [weak self] in
+                guard let self else { return }
+                self.activePreset = preset
+                self.activeProfile = preset.profile
+                self.refreshStatusIcon()
+                // Update checkmarks without closing menu
+                for (p, v) in profileViews {
+                    v.setActive(p == preset)
+                }
+            }
+            profileViews[preset] = view
+            let item = NSMenuItem()
+            item.view = view
             menu.addItem(item)
         }
 

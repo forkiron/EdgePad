@@ -171,6 +171,64 @@ final class MenuEdgeSliderView: NSView {
     }
 }
 
+// MARK: - Profile row (custom view so clicking doesn't close menu)
+
+final class ProfileItemView: NSView {
+
+    private let checkmark = NSTextField(labelWithString: "")
+    var onSelected: (() -> Void)?
+
+    init(title: String, symbolName: String, isActive: Bool, menuWidth: CGFloat = 280) {
+        super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
+
+        // Checkmark
+        checkmark.stringValue = isActive ? "\u{2713}" : ""
+        checkmark.font = .systemFont(ofSize: 13, weight: .medium)
+        checkmark.textColor = .labelColor
+        checkmark.isBezeled = false
+        checkmark.drawsBackground = false
+        checkmark.isEditable = false
+        checkmark.isSelectable = false
+        checkmark.frame = NSRect(x: 8, y: 4, width: 16, height: 20)
+        addSubview(checkmark)
+
+        // Icon
+        if let img = NSImage(systemSymbolName: symbolName, accessibilityDescription: title) {
+            let iv = NSImageView(frame: NSRect(x: 28, y: 4, width: 18, height: 18))
+            iv.image = img
+            iv.contentTintColor = .secondaryLabelColor
+            addSubview(iv)
+        }
+
+        // Label
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 13)
+        label.textColor = .labelColor
+        label.isBezeled = false
+        label.drawsBackground = false
+        label.isEditable = false
+        label.isSelectable = false
+        label.frame = NSRect(x: 52, y: 4, width: menuWidth - 68, height: 20)
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func mouseUp(with event: NSEvent) {
+        // Highlight briefly
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.layer?.backgroundColor = nil
+        }
+        onSelected?()
+    }
+
+    func setActive(_ active: Bool) {
+        checkmark.stringValue = active ? "\u{2713}" : ""
+    }
+}
+
 // MARK: - Section header
 
 final class MenuSectionView: NSView {
