@@ -52,12 +52,25 @@ final class EdgeDetectorTests: XCTestCase {
         XCTAssertEqual(delegate.updateCalls.last?.edge, .left)
     }
 
-    func testDragContinuesWhenFingerLeavesEdgeZone() {
+    func testDragEndsWhenFingerLeavesHoldZone() {
+        // edgeInset=0.10 and holdToleranceMultiplier=1.8 → hold zone is x<0.18.
+        // A finger that wanders well past the hold zone (x=0.30) should be
+        // treated as "user is no longer edge-swiping" and end the drag.
         detector.handle(sample: sample(x: 0.05, y: 0.50))
         detector.handle(sample: sample(x: 0.05, y: 0.55))     // starts real drag
-        detector.handle(sample: sample(x: 0.30, y: 0.60))     // left the edge strip
         XCTAssertEqual(delegate.beginCalls.count, 1)
-        XCTAssertGreaterThanOrEqual(delegate.updateCalls.count, 2)
+        detector.handle(sample: sample(x: 0.30, y: 0.60))     // left the hold zone
+        XCTAssertEqual(delegate.endCalls.count, 1, "Drag should end when finger leaves the hold zone")
+    }
+
+    func testDragSurvivesSmallJitterAtHoldZoneEdge() {
+        // Hold zone is x<0.18 — a finger that drifts to x=0.15 (inside the
+        // hold zone but outside the activation strip) should stay in drag.
+        detector.handle(sample: sample(x: 0.05, y: 0.50))
+        detector.handle(sample: sample(x: 0.05, y: 0.55))
+        detector.handle(sample: sample(x: 0.15, y: 0.60))
+        XCTAssertEqual(delegate.beginCalls.count, 1)
+        XCTAssertEqual(delegate.endCalls.count, 0, "Drag must not end while finger is in hold zone")
     }
 
     func testMultiFingerCancelsActiveDrag() {

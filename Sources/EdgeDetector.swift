@@ -31,10 +31,18 @@ public final class EdgeDetector {
     public weak var delegate: EdgeDetectorDelegate?
 
     /// Width of the edge activation strip, in normalized trackpad units.
-    /// 0.10 = innermost 10% of each edge. Only the FIRST sample of a
-    /// contact has to land inside this strip for a drag to start —
-    /// subsequent samples can roam anywhere.
+    /// 0.10 = innermost 10% of each edge. The first sample of a contact
+    /// must land inside this strip for a drag to start, AND the finger
+    /// must stay inside `edgeInset * holdToleranceMultiplier` for the
+    /// drag to keep running (see holdToleranceMultiplier).
     public var edgeInset: Float = 0.10
+
+    /// Once a drag is active, the finger is allowed to wander up to
+    /// `edgeInset * holdToleranceMultiplier` from the trackpad edge
+    /// before we treat the gesture as "left the zone" and end the drag.
+    /// 1.0 = strict (must stay in the activation strip), higher = more
+    /// forgiving for jittery fingers near the boundary.
+    public var holdToleranceMultiplier: Float = 1.8
 
     /// Minimum signed travel before the drag is considered "real" and
     /// a didBeginDrag event is emitted. Prevents tap jitter from nudging
@@ -180,6 +188,16 @@ public final class EdgeDetector {
             candidateFrames.removeAll()
             NSLog("[EDGE] BEGIN drag on \(edge) at startPos=\(String(format: "%.3f", startPosition)) (passed dead zone + intent)")
             delegate?.edgeDetector(self, didBeginDragOn: edge, at: startPosition)
+        } else {
+            // Active drag: enforce that the finger stays inside the edge
+            // zone (with hysteresis tolerance). If the finger wanders too
+            // far inward, the user is no longer edge-swiping — end the
+            // drag rather than continuing to update volume/brightness.
+            if !stillInZone(edge: edge, x: sample.x, y: sample.y) {
+                NSLog("[EDGE] finger left \(edge) hold zone (pos=(\(String(format: "%.3f", sample.x)), \(String(format: "%.3f", sample.y)))) — ending drag")
+                endActiveDrag()
+                return
+            }
         }
 
         // Throttle sub-0.1% position updates to cut CPU.
@@ -188,6 +206,20 @@ public final class EdgeDetector {
 
         let event = EdgeDragEvent(edge: edge, delta: delta, position: pos, isStart: false)
         delegate?.edgeDetector(self, didUpdate: event)
+    }
+
+    /// Returns true if the touch sample is still within the edge's hold
+    /// zone (`edgeInset * holdToleranceMultiplier`). The hold zone is
+    /// wider than the activation strip so jittery fingers near the
+    /// boundary don't repeatedly cancel mid-drag.
+    private func stillInZone(edge: TrackpadEdge, x: Float, y: Float) -> Bool {
+        let hold = edgeInset * holdToleranceMultiplier
+        switch edge {
+        case .top:    return y > (1.0 - hold)
+        case .bottom: return y < hold
+        case .left:   return x < hold
+        case .right:  return x > (1.0 - hold)
+        }
     }
 
     private func cancelCandidate() {
