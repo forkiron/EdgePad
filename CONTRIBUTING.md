@@ -35,7 +35,7 @@ Conventional commits:
 feat: add bottom-edge horizontal scroll
 fix: clamp volume to [0,1] when sensitivity > 1
 docs: update PRD with auto-profile section
-chore: bump OpenMultitouchSupport to 3.0.4
+chore: bump deployment target to macOS 14
 refactor: extract scroll logic into ScrollController
 test: add EdgeDetector dead-zone tests
 ```

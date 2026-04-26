@@ -30,16 +30,16 @@ EdgePad is a single menu-bar executable. All components run in one process with 
 │           │        │         │        │                 │
 │  ┌────────▼────────▼─────────▼────────▼──────────────┐   │
 │  │             MultitouchCapture (service)          │   │
-│  │   wraps Kyome22/OpenMultitouchSupport             │   │
+│  │   dlopen + dlsym on MultitouchSupport.framework  │   │
+│  │   enumerates devices via MTDeviceCreateList      │   │
 │  └────────────────────┬─────────────────────────────┘    │
 └───────────────────────┼──────────────────────────────────┘
                         │
-              ┌─────────▼──────────┐
-              │  OpenMultitouch    │
-              │    Support (SPM)   │
-              │  dlopen → private  │
-              │  MT framework      │
-              └────────────────────┘
+              ┌─────────▼──────────────────────┐
+              │  /System/Library/PrivateFrame  │
+              │  works/MultitouchSupport.frame │
+              │  work (loaded at runtime)      │
+              └────────────────────────────────┘
 ```
 
 ---
@@ -47,7 +47,7 @@ EdgePad is a single menu-bar executable. All components run in one process with 
 ## Threading model
 
 - **Main actor**: everything UI-facing (menu bar, overlay window, edge detector, controllers). Simple, no cross-actor data races.
-- **Background**: OpenMultitouchSupport drives the MT callback on its own queue. We hop to main via `DispatchQueue.main.async` before touching any EdgePad state.
+- **Background**: `MultitouchSupport.framework` invokes our C callback on a private dispatch queue. We hop to main via `DispatchQueue.main.async` before touching any EdgePad state.
 
 This is overkill-safe for a small app. Touch events come in at ~125 Hz max, which is nothing for the main queue.
 
@@ -55,8 +55,8 @@ This is overkill-safe for a small app. Touch events come in at ~125 Hz max, whic
 
 ## Data flow
 
-1. `OpenMultitouchSupport` fires a touch frame on its background actor.
-2. `MultitouchCapture` hops to main and converts `OMSTouchData` → lightweight `TouchSample`.
+1. The MT framework fires a touch frame on its private background queue.
+2. `MultitouchCapture` hops to main and converts each `MTData` → lightweight `TouchSample`.
 3. `EdgeDetector` classifies the sample and either ignores it (not an edge drag) or forwards an `EdgeDragEvent` to the active profile handler.
 4. The profile handler routes the event to one of the controllers (`VolumeController`, `BrightnessController`, `MediaScrubController`, `ScrollController`).
 5. The controller calls the appropriate system API and tells `OverlayWindow` what HUD to show.
@@ -121,12 +121,11 @@ struct EdgeProfile {
 
 ## Design decisions
 
-### Why `OpenMultitouchSupport` instead of rolling our own `dlopen` bindings?
+### Why direct `dlopen` bindings instead of an SPM wrapper?
 
-- **Already solved, MIT-licensed, maintained, Swift 6 concurrency-ready** (Kyome22, last updated Jan 2025)
-- Provides richer data (pressure, angle, state enum) that we get for free
-- Swift Package Manager handles versioning
-- Less code for us to maintain, less surface for breakage when Apple changes the private framework
+Every off-the-shelf Swift wrapper for `MultitouchSupport.framework` calls `MTDeviceCreateDefault()`. On Apple Silicon MacBooks that returns a 60×2 auxiliary sensor — not the real 26×18 trackpad — so every coordinate is unusable.
+
+The fix is to enumerate devices with `MTDeviceCreateList` and pick the one with a real trackpad-sized sensor grid. That's ~80 lines of `dlopen`/`dlsym` in `MultitouchCapture.swift`, no SPM dependencies, and it works on every M-series Mac.
 
 ### Why relative-delta control instead of absolute?
 
@@ -146,7 +145,9 @@ Multi-finger gestures are already claimed by the system (three-finger swipe, pin
 
 ### Why not SwiftUI for the overlay?
 
-We use AppKit `NSWindow` + custom `NSView.draw(_:)` for the HUD. SwiftUI would force us into a `NSHostingView` with animation complications and extra overhead for a single 220×220 window that renders 60 times a second at most. The HUD is pure Core Graphics, and it's fast.
+For volume and brightness, we don't render anything ourselves — we call `[OSDManager showImage:onDisplayID:…filledChiclets:totalChiclets:locked:]` from the private `OSD.framework` and let macOS draw its real HUD. The user sees pixel-identical Apple chrome (same chiclets, same fade, same display) instead of a clone. See `Sources/NativeHUD.swift`.
+
+For scrub and scroll, where macOS has no native HUD, we use AppKit `NSWindow` + custom `NSView.draw(_:)`. SwiftUI would force us into a `NSHostingView` with animation complications and extra overhead for a single 220×220 window. The HUD is pure Core Graphics, and it's fast.
 
 We DO use SwiftUI for the settings window — that's where SwiftUI shines.
 

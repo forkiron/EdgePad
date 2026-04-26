@@ -25,10 +25,7 @@ if [ "${1:-}" = "clean" ]; then
     exit 0
 fi
 
-echo "▸ Resolving SwiftPM dependencies…"
-swift package resolve
-
-echo "▸ Building release binary (this fetches OpenMultitouchSupport on first run)…"
+echo "▸ Building release binary…"
 swift build -c release
 
 # swift build places the binary at .build/release/$APP_NAME

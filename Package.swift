@@ -1,14 +1,10 @@
 // swift-tools-version: 6.0
 // EdgePad — turn your MacBook trackpad edges into system controls.
 //
-// We initially depended on Kyome22/OpenMultitouchSupport but had to drop
-// it because OMS uses MTDeviceCreateDefault() which picks an auxiliary
-// sensor (60×2) on modern Apple Silicon MacBooks instead of the real
-// trackpad. We now bind to MultitouchSupport.framework directly via
-// dlopen in Sources/MultitouchCapture.swift, enumerate all devices, and
-// pick the one with a real sensor grid.
-//
-// No external dependencies — pure Swift + system frameworks.
+// No external SPM dependencies. Private Apple frameworks
+// (MultitouchSupport, DisplayServices, OSD) are loaded via dlopen at
+// runtime — see Sources/MultitouchCapture.swift, BrightnessController.swift,
+// and NativeHUD.swift respectively.
 
 import PackageDescription
 

@@ -39,7 +39,7 @@ EdgePad puts those controls back, on a surface every MacBook already has. No new
 - **Reading mode** — toggle via menu bar or `⌃⌥⌘R`. Right edge becomes a vertical scroller, for zoomed PDFs, magnified web pages, and macOS accessibility Zoom
 - **Relative-delta control** — drags add to the _current_ value, so nothing jumps when you touch the edge
 - **Typing-aware dead zones** — edge gestures are suppressed for 300 ms after any key press, to kill accidental triggers
-- **Minimal native HUD** — looks like a system volume HUD, not a third-party overlay
+- **Real macOS HUD** — volume and brightness drag the actual system overlay (via `OSDManager`), not a clone. Same chiclets, same fade, same display you'd see pressing F11/F12.
 - **Menu-bar only** — no dock icon, no windows, no distraction. Runs in the background, 20 MB of RAM
 - **No network** — zero telemetry, zero analytics, zero update pings unless you turn them on
 - **Open source** — MIT licensed, pure Swift, no hidden dependencies
@@ -110,20 +110,21 @@ Click the menu bar icon → **Settings** to change:
 
 ## How it works
 
-EdgePad uses [Kyome22/OpenMultitouchSupport](https://github.com/Kyome22/OpenMultitouchSupport) (MIT) to stream raw per-finger coordinates from Apple's private `MultitouchSupport.framework`. This is the same technique used by BetterTouchTool, TrackWeight, Jitouch, and countless others. The Swift library handles the dlopen plumbing so EdgePad doesn't have to.
+EdgePad streams raw per-finger trackpad coordinates by `dlopen`ing Apple's private `MultitouchSupport.framework` and binding the C symbols (`MTDeviceCreateList`, `MTRegisterContactFrameCallback`, `MTDeviceStart`, …) directly. It enumerates every multitouch device on the system and starts only the ones with a real trackpad-sized sensor grid — calling `MTDeviceCreateDefault()` on Apple Silicon picks an auxiliary 60×2 sensor instead of the real trackpad, so we don't use it. **No SPM dependencies — pure Swift + Apple's frameworks.**
 
 The `EdgeDetector` classifies each touch sample. If a contact lands inside one of four edge strips (default 10% inset from each side), it opens a drag. Subsequent samples from the same finger update the drag's position. When the finger lifts, the drag ends.
 
-System state changes go through public macOS APIs:
+System state changes go through Apple's own APIs:
 
 | Action | API |
 |---|---|
 | Volume read/write | `CoreAudio` → `kAudioDevicePropertyVolumeScalar` on the default output device |
 | Brightness read/write | Private `DisplayServices.framework` via `dlopen` — same entry point macOS System Settings uses |
+| Volume / brightness HUD | Private `OSD.framework` → `[OSDManager showImage:onDisplayID:…filledChiclets:totalChiclets:locked:]`. We do **not** draw our own HUD for these — we ask macOS to show its real one, so what you see is pixel-identical to pressing F1/F2 or F11/F12. |
 | Video scrub | `CGEvent` posting `←` and `→` keys to the focused app |
 | Horizontal / vertical scroll | `CGEvent` scroll wheel events, pixel units, posted to the focused app |
 
-The HUD overlay is a borderless `NSWindow` with a custom `NSView.draw(_:)` that renders an `NSBezierPath` rounded rect, icon glyph, and value bar in ~1ms per frame. Click-through (`ignoresMouseEvents = true`), always on top, auto-hides after 0.9 seconds.
+For scrub and scroll, where macOS has no native HUD, we draw a small custom borderless `NSWindow` overlay (click-through, auto-hides after 0.6 s).
 
 For the full design, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). For the spec, read [docs/PRD.md](docs/PRD.md).
 
@@ -148,7 +149,7 @@ cd EdgePad
 
 What `build.sh` does:
 
-1. Runs `swift build -c release` (pulls OpenMultitouchSupport from SPM)
+1. Runs `swift build -c release` (no external dependencies to fetch)
 2. Copies the binary into `build/EdgePad.app/Contents/MacOS/EdgePad`
 3. Writes `Info.plist`
 4. Ad-hoc signs (`codesign --force --sign -`)
@@ -193,7 +194,7 @@ If you want to add a new edge action, start by reading [docs/ARCHITECTURE.md](do
 
 ### Does this work on external Magic Trackpads?
 
-Yes. `OpenMultitouchSupport` reads from any connected multitouch device.
+Yes. EdgePad enumerates every multitouch device on the system and reads from any with a real trackpad-sized sensor grid, so external Magic Trackpads work the same as the built-in one.
 
 ### Does it work with a mouse?
 
@@ -201,25 +202,17 @@ No — EdgePad only reads from multitouch trackpad devices. Mice don't have edge
 
 ### Will Apple remove the private MultitouchSupport framework?
 
-It has been part of macOS since at least 10.6. Apple has patented reconfigurable illuminated trackpads (November 2024) which suggests they're going _deeper_ into trackpad hardware, not shallower. If they do break it, `OpenMultitouchSupport` will likely be updated, and EdgePad follows.
+It has been part of macOS since at least 10.6 and the C ABI hasn't changed in roughly 15 years. Apple has patented reconfigurable illuminated trackpads (November 2024), which suggests they're going _deeper_ into trackpad hardware, not shallower. If a future macOS does change the layout, our `dlopen` bindings in `MultitouchCapture.swift` are ~80 lines and easy to update.
 
 ### Why can't this be on the Mac App Store?
 
-The Mac App Store requires app sandboxing. App sandboxing prevents access to the private `MultitouchSupport.framework`. No private framework = no touch coordinates = no EdgePad. Most serious trackpad utilities on Mac (BetterTouchTool, TrackWeight, Mactic, Slidr, Jitouch) ship outside the App Store for the same reason.
+The Mac App Store requires app sandboxing. App sandboxing prevents access to the private `MultitouchSupport.framework`. No private framework = no touch coordinates = no EdgePad.
 
 ### Is this safe? You're using private APIs.
 
-The private APIs EdgePad touches are read-only observation (`MultitouchSupport`) and a brightness setter that Apple's own System Settings uses (`DisplayServices`). We never modify kernel state, never touch IOKit directly, never patch system binaries. The worst case if a future macOS breaks them is that the app stops working gracefully.
+The private APIs EdgePad touches are read-only observation (`MultitouchSupport`), a brightness setter that Apple's own System Settings uses (`DisplayServices`), and a HUD presenter that the OS itself uses for the F-key shortcuts (`OSD.framework`). We never modify kernel state, never touch IOKit directly, never patch system binaries. The worst case if a future macOS breaks them is that the app stops working gracefully.
 
-Read the code: it's 1,500 lines of Swift, MIT licensed, no binary blobs, no network calls, no telemetry unless you turn it on.
-
-### How is this different from BetterTouchTool?
-
-BTT is a Swiss Army knife — 500 features, 10-year learning curve. EdgePad does one thing (trackpad edges as controls) and does it without any configuration. It's also free and open source. Use both: BTT for everything else, EdgePad for the edges.
-
-### How is this different from Slidr?
-
-Slidr is a $5 closed-source app that does volume and brightness on the left and right edges only. Its own homepage displays "0 downloads." EdgePad adds the top edge (video scrub), the bottom edge (horizontal scroll), the Reading profile (accessibility vertical scroll), is free, open source, and under active development.
+Read the code: it's pure Swift, MIT licensed, no binary blobs, no SPM dependencies, no network calls, no telemetry unless you turn it on.
 
 ### Will you accept donations / sponsors?
 
@@ -230,18 +223,3 @@ Yes — once there's an app worth donating to. For now, star the repo.
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
----
-
-## Credits
-
-- **[Kyome22/OpenMultitouchSupport](https://github.com/Kyome22/OpenMultitouchSupport)** — the Swift wrapper that made this possible
-- **[TheBoredTeam/boring.notch](https://github.com/TheBoredTeam/boring.notch)** — inspiration for the menu-bar HUD replacement pattern
-- **[KrishKrosh/TrackWeight](https://github.com/KrishKrosh/TrackWeight)** — proof that creative uses of the trackpad go viral
-- **Apple** — for deleting the Touch Bar and not replacing it, giving us the problem statement
-
----
-
-## Acknowledgments
-
-Thanks to the macOS open-source community. This is a love letter to a trackpad.

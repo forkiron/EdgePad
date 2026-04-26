@@ -18,12 +18,18 @@ Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
 - **Language**: Swift 6.0
 - **UI**: AppKit for menu bar + overlay, SwiftUI for settings window
 - **Architecture**: Single main-actor executable, no XPC helpers
-- **Dependency manager**: Swift Package Manager
+- **Dependency manager**: Swift Package Manager (no external SPM deps)
 - **License**: MIT
 
-## Key dependency
+## Private frameworks (loaded via `dlopen` at runtime)
 
-[`Kyome22/OpenMultitouchSupport`](https://github.com/Kyome22/OpenMultitouchSupport) (MIT, Swift 6 compatible). Provides `OMSManager.shared()` with an `AsyncStream<[OMSTouchData]>` of raw touch frames. **Do not attempt to replicate its dlopen bindings — use the library.**
+| Framework | Purpose | Bound in |
+|---|---|---|
+| `MultitouchSupport.framework` | Raw per-finger trackpad coordinates | `MultitouchCapture.swift` |
+| `DisplayServices.framework` | Read/write display brightness | `BrightnessController.swift` |
+| `OSD.framework` (`OSDManager`) | Trigger the **real** macOS volume/brightness HUD | `NativeHUD.swift` |
+
+**Important**: `MultitouchCapture.swift` enumerates devices via `MTDeviceCreateList` and starts only the ones with a real trackpad-sized sensor grid. Do **not** call `MTDeviceCreateDefault()` — on Apple Silicon MacBooks it returns a 60×2 auxiliary sensor instead of the real trackpad and every coordinate is garbage. Do not pull in any third-party multitouch wrapper for the same reason.
 
 ## Project structure
 
@@ -33,14 +39,15 @@ EdgePad/
 ├── Sources/                   # All Swift source
 │   ├── main.swift             # Entry point (NSApplication.run)
 │   ├── AppDelegate.swift      # Wires everything together
-│   ├── MultitouchCapture.swift   # Wraps OpenMultitouchSupport
+│   ├── MultitouchCapture.swift   # Direct dlopen bindings to MultitouchSupport.framework
 │   ├── EdgeDetector.swift     # 4-edge classifier + drag state machine
 │   ├── EdgeProfile.swift      # Profile types + Media/Reading presets
 │   ├── VolumeController.swift    # CoreAudio volume read/write
 │   ├── BrightnessController.swift # DisplayServices brightness read/write
 │   ├── MediaController.swift  # Arrow-key scrub
 │   ├── ScrollController.swift # CGEvent scroll posting
-│   └── OverlayWindow.swift    # HUD window + custom NSView draw
+│   ├── NativeHUD.swift        # Triggers the real macOS HUD via OSDManager
+│   └── OverlayWindow.swift    # Custom HUD window for scrub/scroll only
 ├── Resources/
 │   └── Info.plist
 ├── docs/
@@ -92,7 +99,8 @@ swift test
 
 ## What NOT to do
 
-- **Do not** hand-roll `dlopen` bindings for `MultitouchSupport` — use `OpenMultitouchSupport`
+- **Do not** add any third-party multitouch wrapper as an SPM dependency — they all call `MTDeviceCreateDefault()` which returns a useless auxiliary sensor on Apple Silicon. Bind the framework directly.
+- **Do not** draw a custom volume/brightness HUD — call `NativeHUD.showVolume(_:)` / `NativeHUD.showBrightness(_:)`. The user explicitly wants Apple's real HUD, not a clone.
 - **Do not** introduce `Combine` or `RxSwift` — the app is simple enough for delegate/async-await
 - **Do not** add `Electron`, `Tauri`, `Catalyst`, or any wrapped-web UI
 - **Do not** add telemetry, analytics, or network calls without an explicit user opt-in

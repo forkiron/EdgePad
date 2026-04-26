@@ -15,7 +15,7 @@ Drag along the **top edge** to scrub a video timeline. Drag along the **left edg
 
 In a Reading mode, the right edge becomes a vertical scroll, making zoomed PDFs, magnified Safari pages, and macOS accessibility Zoom actually pannable without awkward shift-scroll hacks.
 
-EdgePad is a free, open-source, single-binary menu-bar utility for macOS 13+. It uses a public Swift wrapper (`Kyome22/OpenMultitouchSupport`) over Apple's private `MultitouchSupport.framework` to read raw trackpad contacts, and posts system events via public APIs (`CoreAudio`, `DisplayServices`, `CGEvent`). It is **the Touch Bar Apple deleted, built into the trackpad you already have**.
+EdgePad is a free, open-source, single-binary menu-bar utility for macOS 13+. It `dlopen`s Apple's private `MultitouchSupport.framework` directly to read raw trackpad contacts, posts system events via Apple's own APIs (`CoreAudio`, `DisplayServices`, `CGEvent`), and triggers the real macOS HUD via `OSDManager` from `OSD.framework` instead of drawing its own. It is **the Touch Bar Apple deleted, built into the trackpad you already have**.
 
 ---
 
@@ -34,7 +34,7 @@ EdgePad is a free, open-source, single-binary menu-bar utility for macOS 13+. It
 
 - MacBook sales hit an all-time high in 2025. The installed base of Apple Silicon MacBooks is massive.
 - The Touch Bar's removal has left a very specific, very concrete feature-gap in the market.
-- `OpenMultitouchSupport` shipped a clean, modern, Swift 6 concurrency-friendly wrapper over the private framework in 2024, eliminating the biggest technical barrier.
+- The `MultitouchSupport.framework` C ABI has been stable for ~15 years and remains accessible by `dlopen` on every shipped Apple Silicon and Intel Mac.
 - Apple themselves are actively patenting reconfigurable illuminated trackpads (Patently Apple, November 2024), validating the direction but taking years to ship.
 - The open-source Mac utility space is red-hot: `boring.notch` (8.1k★), `Rectangle`, `AltTab`, `MiddleDrag`, and `TrackWeight` (8.9k★) all show that well-built, focused, free Mac tools go viral.
 
@@ -89,11 +89,11 @@ EdgePad is a free, open-source, single-binary menu-bar utility for macOS 13+. It
 
 **User story**: As a developer building EdgePad, I need access to raw per-finger coordinates on the trackpad so I can detect edge contacts.
 
-**Implementation**: Wrap `Kyome22/OpenMultitouchSupport` (MIT-licensed) as a Swift Package dependency. This library provides an `AsyncStream<[OMSTouchData]>` of touch frames with `position`, `pressure`, `state`, `axis`, and `angle` fields, and handles the private-framework plumbing so we don't have to.
+**Implementation**: `dlopen` Apple's private `/System/Library/PrivateFrameworks/MultitouchSupport.framework` directly and bind the C symbols (`MTDeviceCreateList`, `MTRegisterContactFrameCallback`, `MTDeviceStart`, …). Enumerate every multitouch device and start only those with a real trackpad-sized sensor grid — calling `MTDeviceCreateDefault()` on Apple Silicon picks an auxiliary 60×2 sensor instead of the real trackpad. Convert the framework's `MTData` C struct into our own `TouchSample` value type with `position`, `pressure`, `state`, and `timestamp`.
 
 **Acceptance criteria**:
 - [ ] App starts streaming touches within 100 ms of launch
-- [ ] `OMSManager` cleanly stops on app quit with no zombie callbacks
+- [ ] All MT devices cleanly stop on app quit with no zombie callbacks
 - [ ] Capture survives trackpad disconnect/reconnect (external Magic Trackpad)
 - [ ] Failure mode: if framework loading fails, show a friendly alert and disable the app, don't crash
 
@@ -257,10 +257,10 @@ EdgePad is a free, open-source, single-binary menu-bar utility for macOS 13+. It
 
 ## 7. Technical Constraints
 
-- **macOS 13 Ventura or later** (OpenMultitouchSupport requirement)
-- **Apple Silicon or Intel** (both supported by OpenMultitouchSupport)
+- **macOS 13 Ventura or later**
+- **Apple Silicon or Intel** (both supported)
 - **Swift 6.0+** with strict concurrency
-- **App Sandbox must be disabled** (OpenMultitouchSupport requirement — private framework access)
+- **App Sandbox must be disabled** — private frameworks (`MultitouchSupport`, `DisplayServices`, `OSD`) cannot be loaded under sandbox
 - **Cannot ship via Mac App Store** because of private API usage. Distribution is DMG + Homebrew cask.
 - **Requires Accessibility permission** to post `CGEvent` key/scroll events
 - **Requires Input Monitoring permission** to read trackpad contacts (maybe — needs verification during implementation)
@@ -272,14 +272,18 @@ EdgePad is a free, open-source, single-binary menu-bar utility for macOS 13+. It
 
 | Dependency | Version | Purpose | License |
 |---|---|---|---|
-| `Kyome22/OpenMultitouchSupport` | 3.0.3+ | Raw trackpad touch capture via private MT framework | MIT |
 | `sparkle-project/Sparkle` | 2.6+ | Auto-update (opt-in) | MIT |
 | `apple/swift-argument-parser` | 1.5+ | CLI argument parsing (optional, for debug CLI build) | Apache 2.0 |
 
-**System frameworks** (no SPM dependency needed):
+**No SPM dependencies are pulled for the core app.** Multitouch capture, brightness control, and the HUD are all implemented against private Apple frameworks loaded via `dlopen` at runtime — see the table below.
+
+**System / private frameworks** (no SPM dependency needed):
 - `AppKit`, `Foundation`, `SwiftUI` — app shell
 - `CoreAudio` — volume read/write
-- `CoreGraphics`, `DisplayServices` (private, `dlopen`-loaded) — brightness + events
+- `MultitouchSupport.framework` (private, `dlopen`-loaded) — trackpad contact stream
+- `DisplayServices.framework` (private, `dlopen`-loaded) — brightness read/write
+- `OSD.framework` → `OSDManager` (private, `dlopen`-loaded) — trigger the real macOS volume/brightness HUD
+- `CoreGraphics` — `CGEvent` for arrow-key scrub and scroll wheel posting
 - `ServiceManagement` — launch at login (`SMAppService`)
 - `Carbon` — virtual keycodes for scrub
 
@@ -372,7 +376,7 @@ The README's top section must have an animated GIF that in 2 seconds shows:
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| Apple breaks `MultitouchSupport.framework` in a future macOS | High | Pin OpenMultitouchSupport version; monitor Kyome22's repo for updates; fall back to `CGEventTap` scroll events only if MT goes dark |
+| Apple breaks `MultitouchSupport.framework` in a future macOS | High | The C ABI has been stable for ~15 years; we monitor pre-release seeds, and our `dlopen` bindings live in a single ~80-line file (`MultitouchCapture.swift`) so updates are localized. Fallback: `CGEventTap` scroll events only if MT goes dark. |
 | `DisplayServicesSetBrightness` stops working on a future macOS | Medium | Fall back to posting F1/F2 brightness keys via `CGEvent` (step control, works everywhere) |
 | Users can't grant Accessibility permission on corporate-managed Macs | Medium | Document clearly in README; offer a "manual install" path with TCC reset instructions |
 | Arrow-key scrubbing doesn't work in obscure video players | Low | Document supported apps; accept as a known limitation; future v2 can use `MediaRemote` framework |
@@ -385,11 +389,11 @@ The README's top section must have an animated GIF that in 2 seconds shows:
 ## 13. Open Questions
 
 - [ ] Which brightness API is most stable on macOS 14 / 15 / 26? (validate `DisplayServices` during week 1)
-- [ ] Does Input Monitoring permission actually get prompted for `OpenMultitouchSupport`, or only Accessibility?
+- [ ] Does Input Monitoring permission actually get prompted for our direct `MultitouchSupport` binding, or only Accessibility?
 - [ ] Should the bottom-edge horizontal scroll always be active, or profile-gated?
 - [ ] Should Reading profile be auto-triggered by focused-app heuristics, or manual only in v1?
 - [ ] Menu bar icon: custom SF Symbol, Apple symbol like `rectangle.compress.vertical`, or text?
-- [ ] Are `OpenMultitouchSupport` callbacks guaranteed on the main actor or a background queue? (verify before wiring delegates)
+- [ ] `MultitouchSupport` callbacks fire on a private background queue — confirmed; we hop to main in `MultitouchCapture.swift`.
 
 ---
 

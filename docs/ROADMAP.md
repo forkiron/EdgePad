@@ -6,7 +6,7 @@ Ship small, ship often. Each row is a user-visible change, not a refactor.
 
 ## v0.1 — Core prototype (internal)
 - [x] Project scaffold
-- [ ] OpenMultitouchSupport integrated via SPM
+- [x] Direct `dlopen` bindings to `MultitouchSupport.framework` (no SPM wrapper)
 - [ ] Edge detection (4 edges) with dead zone
 - [ ] Volume on left edge
 - [ ] Brightness on right edge

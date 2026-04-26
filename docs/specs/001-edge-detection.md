@@ -34,8 +34,8 @@ The core gesture primitive of EdgePad. Converts a stream of raw multitouch conta
 ### Architecture
 
 ```
-OpenMultitouchSupport  ─►  MultitouchCapture  ─►  EdgeDetector  ─►  delegate
-     (AsyncStream)        (TouchSample)         (EdgeDragEvent)
+MultitouchSupport.framework ─► MultitouchCapture ─► EdgeDetector ─► delegate
+   (C callback, dlopen)        (TouchSample)        (EdgeDragEvent)
 ```
 
 `EdgeDetector` is a pure state machine. No UI, no system calls, no side effects. That makes it unit-testable.
@@ -87,13 +87,13 @@ Emit `EdgeDragEvent(edge, delta, position, isStart)`.
 
 ### Multi-finger cancellation
 
-`OpenMultitouchSupport` provides an array of active touches per frame. If the array size > 1 while we're in LANDED or DRAGGING state, we cancel the drag and return to IDLE.
+`MultitouchSupport.framework` delivers an array of active contacts per frame via the C callback. If the array size > 1 while we're in LANDED or DRAGGING state, we cancel the drag and return to IDLE.
 
 ## Data Models
 
 ```swift
 public struct TouchSample: Sendable {
-    public let id: Int32         // per-finger identifier from OMS
+    public let id: Int32         // per-finger identifier from MTData
     public let x: Float          // 0…1
     public let y: Float          // 0…1, 0 = bottom
     public let pressure: Float   // 0…1

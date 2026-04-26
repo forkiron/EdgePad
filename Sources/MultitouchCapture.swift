@@ -1,14 +1,11 @@
 // MultitouchCapture.swift
 //
 // Direct bindings to Apple's private MultitouchSupport.framework via
-// dlopen/dlsym. We do NOT use OpenMultitouchSupport because it calls
-// MTDeviceCreateDefault() which on Apple Silicon MacBooks returns an
-// auxiliary 60×2 sensor (not the real 26×18 trackpad), making every
-// coordinate useless. Instead we enumerate all devices with
-// MTDeviceCreateList and start only the ones with real trackpad-sized
-// sensor grids.
-//
-// Mirrors the approach used by TrackBoard's Python capture.py.
+// dlopen/dlsym. We enumerate all devices with MTDeviceCreateList and
+// start only the ones with real trackpad-sized sensor grids. We do
+// NOT use MTDeviceCreateDefault() — on Apple Silicon MacBooks it
+// returns a 60×2 auxiliary sensor instead of the real 26×18 trackpad
+// and every coordinate it yields is unusable.
 
 import Foundation
 import Darwin
