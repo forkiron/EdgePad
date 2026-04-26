@@ -163,6 +163,17 @@ final class ContextDetector: @unchecked Sendable {
             return true
         }
 
+        // Browser frontmost + something is making sound right now → assume
+        // the user is on a video. Catches X, LinkedIn, embedded players,
+        // random blogs etc. that wrap media in JS and publish nothing
+        // useful through AX. Arrow keys flow to whatever currently has
+        // keyboard focus — which, after the user clicks the video to
+        // start it, is the video player itself.
+        if Self.browserApps.contains(bid) && AudioActivity.isPlaying() {
+            NSLog("[CTX] browser \(bid) + audio playing → media")
+            return true
+        }
+
         // Browsers — check window title for video sites (legacy fallback
         // for the common case where the user hasn't clicked yet but is
         // obviously on YouTube/Netflix/etc.)
