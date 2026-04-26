@@ -27,16 +27,29 @@ public final class BrightnessController {
 
     public init() {
         let path = "/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices"
-        if let h = dlopen(path, RTLD_LAZY) {
-            handle = h
-            if let s = dlsym(h, "DisplayServicesSetBrightness") {
-                setFn = unsafeBitCast(s, to: SetFn.self)
-            }
-            if let g = dlsym(h, "DisplayServicesGetBrightness") {
-                getFn = unsafeBitCast(g, to: GetFn.self)
-            }
+        guard let h = dlopen(path, RTLD_LAZY) else {
+            let err = dlerror().map { String(cString: $0) } ?? "unknown error"
+            NSLog("[BRIGHT] ✗ dlopen failed for \(path): \(err) — brightness control disabled")
+            return
+        }
+        handle = h
+        if let s = dlsym(h, "DisplayServicesSetBrightness") {
+            setFn = unsafeBitCast(s, to: SetFn.self)
+        } else {
+            NSLog("[BRIGHT] ✗ symbol DisplayServicesSetBrightness missing — set will no-op")
+        }
+        if let g = dlsym(h, "DisplayServicesGetBrightness") {
+            getFn = unsafeBitCast(g, to: GetFn.self)
+        } else {
+            NSLog("[BRIGHT] ✗ symbol DisplayServicesGetBrightness missing — get will return 0.5")
+        }
+        if setFn != nil, getFn != nil {
+            NSLog("[BRIGHT] ✓ DisplayServices loaded")
         }
     }
+
+    /// True if both DisplayServices symbols loaded; useful for the startup banner.
+    public var isAvailable: Bool { setFn != nil && getFn != nil }
 
     public func captureStartValue() {
         startBrightness = currentBrightness()
@@ -59,8 +72,16 @@ public final class BrightnessController {
     @discardableResult
     public func setBrightness(_ value: Float) -> Bool {
         let clamped = max(0, min(1, value))
-        guard let setFn, let display = mainDisplay() else { return false }
-        return setFn(display, clamped) == 0
+        guard let setFn, let display = mainDisplay() else {
+            NSLog("[BRIGHT] setBrightness(\(clamped)) skipped — symbol or display unavailable")
+            return false
+        }
+        let rc = setFn(display, clamped)
+        if rc != 0 {
+            NSLog("[BRIGHT] DisplayServicesSetBrightness returned \(rc) — set may have failed")
+            return false
+        }
+        return true
     }
 
     private func mainDisplay() -> CGDirectDisplayID? {

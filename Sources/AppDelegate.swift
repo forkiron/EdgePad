@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
         capture.start(routingTo: detector)
 
+        logFrameworkAvailability()
         NSLog("[APP] running — profile=\(activePreset.rawValue)")
         if activePreset == .auto {
             NSLog("[APP] Auto profile: edges resolved dynamically from context")
@@ -71,6 +72,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         }
         NSLog("[APP] Ready — go touch a trackpad edge")
         NSLog("========================================")
+    }
+
+    /// One-line summary of which private frameworks loaded vs failed.
+    /// Printed at startup so the user (and you) can spot a broken
+    /// framework load immediately in Console.app.
+    private func logFrameworkAvailability() {
+        let hud = NativeHUD.isAvailable        ? "✓" : "✗"
+        let bri = brightness.isAvailable       ? "✓" : "✗"
+        NSLog("[APP] private frameworks: OSDManager \(hud) | DisplayServices \(bri)")
+        if !NativeHUD.isAvailable {
+            NSLog("[APP]   → HUD calls will be no-ops; volume/brightness still work, just no overlay")
+        }
+        if !brightness.isAvailable {
+            NSLog("[APP]   → brightness control disabled; F1/F2 will still work via OS")
+        }
     }
 
     private func checkAccessibilityPermission() {
@@ -88,6 +104,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Make sure we never leave the cursor hidden / disassociated if the
+        // user quits mid-drag.
+        endCursorLock()
         capture.stop()
         context.stop()
         if let monitor = keyMonitor {
@@ -301,19 +320,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         }
         activeDragAction = action
         if action != .disabled {
-            savedCursorPosition = CGEvent(source: nil)?.location
-            NSCursor.hide()
+            beginCursorLock()
         }
         NSLog("[APP] ▶ BEGIN \(edge) → action=\(action.rawValue)")
         switch action {
         case .volume:
             volume.captureStartValue()
             NSLog("[APP]   start volume = \(volume.currentVolume())")
-            overlay.showValue(kind: .volume, value: volume.currentVolume())
+            NativeHUD.showVolume(volume.currentVolume())
         case .brightness:
             brightness.captureStartValue()
             NSLog("[APP]   start brightness = \(brightness.currentBrightness())")
-            overlay.showValue(kind: .brightness, value: brightness.currentBrightness())
+            NativeHUD.showBrightness(brightness.currentBrightness())
         case .mediaScrub:
             media.reset()
             overlay.showPulse(kind: .scrub, direction: 0)
@@ -329,19 +347,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     }
 
     func edgeDetector(_ detector: EdgeDetector, didUpdate event: EdgeDragEvent) {
-        // Pin cursor in place every frame
-        if let pos = savedCursorPosition {
-            CGWarpMouseCursorPosition(pos)
-        }
+        // Each update keeps the watchdog alive — if frames stop, the lock
+        // will auto-release 3s later instead of stranding the cursor.
+        if cursorLocked { armCursorWatchdog() }
         switch activeDragAction {
         case .volume:
             let new = volume.applyDelta(event.delta)
             NSLog("[APP] \(event.edge) vol delta=\(String(format: "%.3f", event.delta)) → \(String(format: "%.3f", new))")
-            overlay.showValue(kind: .volume, value: new)
+            NativeHUD.showVolume(new)
         case .brightness:
             let new = brightness.applyDelta(event.delta)
             NSLog("[APP] \(event.edge) brt delta=\(String(format: "%.3f", event.delta)) → \(String(format: "%.3f", new))")
-            overlay.showValue(kind: .brightness, value: new)
+            NativeHUD.showBrightness(new)
         case .mediaScrub:
             media.handleScrubDelta(event.delta)
             overlay.showPulse(kind: .scrub, direction: event.delta >= 0 ? 1 : -1)
@@ -359,10 +376,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     func edgeDetector(_ detector: EdgeDetector, didEndDragOn edge: TrackpadEdge) {
         NSLog("[APP] ◼ END \(edge)")
         activeDragAction = .disabled
+        endCursorLock()
+    }
+
+    // MARK: - Cursor lock
+    //
+    // While an edge drag is active we want the cursor to vanish system-wide
+    // and not move at all, regardless of which app is focused or whether
+    // the cursor is over the desktop. Two pieces are required:
+    //   1. CGDisplayHideCursor — hides the cursor on every display, ignoring
+    //      window focus (NSCursor.hide() only works while our own window is key).
+    //   2. CGAssociateMouseAndMouseCursorPosition(false) — disconnects the
+    //      cursor from the physical mouse/trackpad delta stream, so finger
+    //      motion on the trackpad doesn't move the pointer at all.
+    //
+    // CGDisplayHideCursor reference-counts, so we only call hide/show once
+    // per drag and guard against double calls.
+
+    private var cursorLocked = false
+    private var cursorWatchdog: DispatchWorkItem?
+
+    private func beginCursorLock() {
+        if cursorLocked { return }
+        cursorLocked = true
+        savedCursorPosition = CGEvent(source: nil)?.location
+        CGAssociateMouseAndMouseCursorPosition(0) // 0 = false; disconnect cursor from input
+        CGDisplayHideCursor(CGMainDisplayID())
+        armCursorWatchdog()
+    }
+
+    private func endCursorLock() {
+        cursorWatchdog?.cancel()
+        cursorWatchdog = nil
+        guard cursorLocked else { return }
+        cursorLocked = false
         if let pos = savedCursorPosition {
             CGWarpMouseCursorPosition(pos)
             savedCursorPosition = nil
         }
-        NSCursor.unhide()
+        CGAssociateMouseAndMouseCursorPosition(1) // 1 = true; reconnect
+        CGDisplayShowCursor(CGMainDisplayID())
+    }
+
+    /// Defense-in-depth: if the trackpad stops sending touch frames mid-drag
+    /// (USB unplug, sleep/wake glitch, OS hiccup) we'd otherwise be stuck
+    /// with a hidden + disassociated cursor until next reboot. Auto-release
+    /// 3 seconds after the last touch update.
+    private func armCursorWatchdog() {
+        cursorWatchdog?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.cursorLocked else { return }
+            NSLog("[APP] ⚠ cursor watchdog fired — no touch update for 3s, force-releasing lock")
+            self.endCursorLock()
+        }
+        cursorWatchdog = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: item)
     }
 }
