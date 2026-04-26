@@ -397,14 +397,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             NSLog("[APP]   start brightness = \(brightness.currentBrightness())")
             NativeHUD.showBrightness(brightness.currentBrightness())
         case .mediaScrub:
-            // Default to arrow keys — they give smooth velocity-amplified
-            // seek anywhere the focused player binds Left/Right (which is
-            // every HTML5 <video> in a browser, IINA, VLC, QuickTime,
-            // mpv, etc.). Switch to MR.SendCommand skip-15 only for the
-            // small list of native music/podcast apps that ignore arrows
-            // entirely.
-            media.arm(mode: skipApps.contains(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "")
-                      ? .mediaSession : .arrowKeys)
+            // Try the AX scrubber first — direct writes to the page's
+            // <input type=range> / role=slider gives smooth, exact
+            // seeks regardless of keyboard focus or per-site keybinding
+            // quirks. Falls through to arrow keys (universal HTML5
+            // arrow=±5s) or to MR.SendCommand skip-15 for native music
+            // apps that ignore arrows.
+            let bid = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+            if !skipApps.contains(bid), let slider = AXScrubber.findSlider() {
+                media.arm(mode: .axSlider(slider))
+            } else if skipApps.contains(bid) {
+                media.arm(mode: .mediaSession)
+            } else {
+                media.arm(mode: .arrowKeys)
+            }
             overlay.showPulse(kind: .scrub, direction: 0)
         case .scrollHorizontal, .scrollVertical:
             scroll.beginGesture()
