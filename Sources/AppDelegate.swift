@@ -340,10 +340,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         //   - global controls (volume/brightness/scrub): hide + disassociate
         //   - scroll: hide + warp per-frame, but DON'T disassociate (that
         //     breaks CGEvent scroll routing through cghidEventTap)
+        //   - disabled: hide + disassociate too. The edge detector already
+        //     classified this as deliberate edge intent (passed dead zone +
+        //     velocity/direction checks), so we consume the gesture even when
+        //     the resolved action is a no-op. Without this, the underlying
+        //     touch leaks through to macOS — a top-edge scrub with no media
+        //     would just drag the cursor to the top of the screen, which in
+        //     browsers reads as "page scrolled up".
         let isScroll = (action == .scrollHorizontal || action == .scrollVertical)
-        if action != .disabled {
-            beginCursorLock(hideCursor: true, disassociate: !isScroll)
-        }
+        beginCursorLock(hideCursor: true, disassociate: !isScroll)
         NSLog("[APP] ▶ BEGIN \(edge) → action=\(action.rawValue)")
         switch action {
         case .volume:
