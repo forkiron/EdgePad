@@ -44,6 +44,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     // top → mediaScrub on any site / app without per-bundle hardcoding.
     private var clickMonitor: Any?
 
+    /// Bundle IDs of desktop video apps where arrow keys are the canonical
+    /// seek control and MediaSession coverage is unreliable. Top-edge scrub
+    /// uses arrow-key mode for these; everything else gets the universal
+    /// MR.SendCommand SkipForward15 / GoBack15 path.
+    private let arrowKeyApps: Set<String> = [
+        "com.colliderli.iina",
+        "org.videolan.vlc",
+        "com.apple.QuickTimePlayerX",
+        "io.mpv",
+    ]
+
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -382,7 +393,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             NSLog("[APP]   start brightness = \(brightness.currentBrightness())")
             NativeHUD.showBrightness(brightness.currentBrightness())
         case .mediaScrub:
-            media.reset()
+            // Pick mode based on the frontmost app: arrow keys for the
+            // few desktop video apps where that's the canonical seek
+            // control AND MediaSession coverage is patchy; everything
+            // else (browsers, Music, Podcasts, Spotify, Apple TV, ...)
+            // gets MR.SendCommand which routes through Now Playing.
+            media.arm(mode: arrowKeyApps.contains(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "")
+                      ? .arrowKeys : .mediaSession)
             overlay.showPulse(kind: .scrub, direction: 0)
         case .scrollHorizontal, .scrollVertical:
             scroll.beginGesture()
