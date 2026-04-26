@@ -21,7 +21,10 @@ final class EdgeDetectorTests: XCTestCase {
     // MARK: - Helpers
 
     private func sample(x: Float, y: Float, id: Int32 = 1, state: TouchLifecycle = .touching) -> TouchSample {
-        TouchSample(id: id, x: x, y: y, pressure: 0.5, state: state, timestamp: 0)
+        // Round-shaped fingertip (majorAxis ≈ minorAxis → eccentricity ≈ 1).
+        TouchSample(id: id, x: x, y: y, pressure: 0.5,
+                    majorAxis: 5.0, minorAxis: 5.0,
+                    state: state, timestamp: 0)
     }
 
     // MARK: - Tests

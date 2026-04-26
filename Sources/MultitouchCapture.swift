@@ -56,14 +56,28 @@ public struct TouchSample: Sendable {
     public let x: Float          // 0…1, 0 = left edge
     public let y: Float          // 0…1, 0 = bottom edge
     public let pressure: Float   // size field, approximates pressure
+    public let majorAxis: Float  // ellipse long axis (mm-ish), from MTData
+    public let minorAxis: Float  // ellipse short axis
     public let state: TouchLifecycle
     public let timestamp: Double
 
-    public init(id: Int32, x: Float, y: Float, pressure: Float, state: TouchLifecycle, timestamp: Double) {
+    /// Aspect ratio of the contact ellipse. Fingertips are nearly round
+    /// (≈1.0); palm-rests and side-of-hand contacts are flat ovals
+    /// (1.8+). Used by EdgeDetector for shape-based palm rejection.
+    public var eccentricity: Float {
+        guard minorAxis > 0.001 else { return 1.0 }
+        return max(majorAxis, minorAxis) / max(0.001, min(majorAxis, minorAxis))
+    }
+
+    public init(id: Int32, x: Float, y: Float, pressure: Float,
+                majorAxis: Float, minorAxis: Float,
+                state: TouchLifecycle, timestamp: Double) {
         self.id = id
         self.x = x
         self.y = y
         self.pressure = pressure
+        self.majorAxis = majorAxis
+        self.minorAxis = minorAxis
         self.state = state
         self.timestamp = timestamp
     }
@@ -266,6 +280,8 @@ public final class MultitouchCapture {
                 x: t.normalized.position.x,
                 y: t.normalized.position.y,
                 pressure: t.size,
+                majorAxis: t.majorAxis,
+                minorAxis: t.minorAxis,
                 state: lifecycle,
                 timestamp: timestamp
             )

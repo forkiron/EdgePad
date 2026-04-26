@@ -54,12 +54,19 @@ public final class EdgeDetector {
     /// by typing; this only gates new drags.
     public var typingSuppressionWindow: TimeInterval = 0.30
 
-    /// Touches with `pressure` (MultitouchSupport size) above this
-    /// threshold are treated as palm contacts and ignored. Empirically:
-    /// fingertips report ~0.3–1.5, thumbs ~1.0–2.0, palm-rests run 2.5+.
-    /// Set high enough to allow firm thumb-presses without false palm
-    /// rejection on small-handed users.
-    public var palmSizeThreshold: Float = 2.2
+    /// Hard size cap. Anything larger than this is a palm regardless of
+    /// shape. Empirically: fingertips ~0.3–1.5, firm thumbs ~1.0–2.0,
+    /// palm-rests 2.5+.
+    public var palmSizeHard: Float = 2.2
+
+    /// Shape-based palm gate. Apple's own driver uses contact-ellipse
+    /// aspect ratio: fingertips are nearly round (≈1.0), palms / sides
+    /// of the hand are flat ovals (1.8+). We reject contacts whose
+    /// aspect ratio AND size both exceed soft thresholds — round-but-
+    /// big (firm thumb) passes, oval-but-small (fingertip glancing the
+    /// edge) passes, only big-and-oval together = palm.
+    public var palmShapeAspectThreshold: Float = 1.8
+    public var palmShapeSizeFloor: Float = 1.3
 
     // MARK: - Intent detection
     // Rejects navigation gestures (e.g. swiping toward a button) that
@@ -101,6 +108,21 @@ public final class EdgeDetector {
         lastKeyDownTime = CACurrentMediaTime()
     }
 
+    /// Returns a human-readable reason if `sample` looks like a palm,
+    /// otherwise nil. Combines a hard size cap with a shape-based gate
+    /// (eccentricity × size) — round contacts pass even if firm, oval
+    /// contacts pass if small, only big-and-oval together is rejected.
+    private func palmRejectReason(_ sample: TouchSample) -> String? {
+        if sample.pressure > palmSizeHard {
+            return "size=\(String(format: "%.2f", sample.pressure)) > \(palmSizeHard)"
+        }
+        let ecc = sample.eccentricity
+        if sample.pressure > palmShapeSizeFloor && ecc > palmShapeAspectThreshold {
+            return "size=\(String(format: "%.2f", sample.pressure)) ecc=\(String(format: "%.2f", ecc)) (oval)"
+        }
+        return nil
+    }
+
     // MARK: - Primary input
 
     public func handle(sample: TouchSample) {
@@ -110,11 +132,8 @@ public final class EdgeDetector {
 
         if let edge = activeEdge, let id = activeTouchID {
             guard sample.id == id else { return }
-            // Palm-rejection mid-drag: if the contact size grows beyond the
-            // palm threshold (e.g. a finger drag morphing into a palm-rest),
-            // end the drag rather than continue acting on it.
-            if sample.pressure > palmSizeThreshold {
-                NSLog("[EDGE] active drag on \(edge) grew to size=\(String(format: "%.2f", sample.pressure)) — palm, ending")
+            if let reason = palmRejectReason(sample) {
+                NSLog("[EDGE] active drag on \(edge) → palm (\(reason)), ending")
                 endActiveDrag()
                 centerTouchIDs.insert(sample.id)
                 return
@@ -136,11 +155,11 @@ public final class EdgeDetector {
             return
         }
 
-        // Palm rejection: large contacts are almost always palm-rests rather
-        // than deliberate fingertips. Lock the touch out for its lifetime so
-        // it can't restart a candidate drag if its size dips momentarily.
-        if sample.pressure > palmSizeThreshold {
-            NSLog("[EDGE] rejected palm contact on \(edge) (size=\(String(format: "%.2f", sample.pressure)) > \(palmSizeThreshold)) id=\(sample.id)")
+        // Palm rejection. Lock the touch out for its lifetime if we
+        // reject — otherwise a momentary size dip below threshold could
+        // re-arm the candidate.
+        if let reason = palmRejectReason(sample) {
+            NSLog("[EDGE] rejected palm contact on \(edge) (\(reason)) id=\(sample.id)")
             centerTouchIDs.insert(sample.id)
             return
         }
