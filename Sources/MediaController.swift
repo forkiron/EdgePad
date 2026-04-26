@@ -28,10 +28,15 @@ import QuartzCore
 public final class MediaController {
 
     public enum Mode: Sendable {
+        /// Direct write into an AX slider via kAXValueAttribute. The
+        /// best feel: smooth, exact, bypasses per-site keybinding
+        /// quirks. Only available when AXScrubber.findSlider() locates
+        /// a plausible scrubber at drag-begin.
+        case axSlider(AXScrubber.Handle)
         /// Discrete skip via MR.SendCommand. Universal across Now Playing.
         case mediaSession
-        /// Arrow keys. Used for IINA / VLC / QuickTime where MediaSession
-        /// coverage is unreliable but arrow-key seek is the native UX.
+        /// Arrow keys. Used as the fallback when neither AX slider nor
+        /// MediaSession is the right call.
         case arrowKeys
     }
 
@@ -71,14 +76,35 @@ public final class MediaController {
     private var lastTime: CFTimeInterval = 0
     private var lastSkipPostedAt: CFTimeInterval = 0
 
+    // Slider mode state (only set when mode == .axSlider).
+    private var sliderHandle: AXScrubber.Handle?
+    private var sliderAnchor: Double = 0
+    private var lastSliderWriteAt: CFTimeInterval = 0
+    /// One full edge sweep (delta=1.0) at zero velocity covers this
+    /// fraction of the slider's full range. 0.25 = a quarter of the
+    /// timeline per slow sweep; velocity amp pushes that toward full.
+    public var sliderRangeFraction: Double = 0.25
+    /// Min wall-clock interval between AX writes. AX value-set is
+    /// fast but the page's input listener still has to do work; 16ms
+    /// (~60Hz) is the natural ceiling.
+    public var sliderMinIntervalMs: Double = 16
+
     public init() {}
 
     /// Configure mode for the next drag. Called by AppDelegate at
-    /// drag-begin based on the frontmost app.
+    /// drag-begin based on what AXScrubber found and which app is
+    /// frontmost.
     public func arm(mode: Mode) {
         self.mode = mode
         reset()
-        NSLog("[MED] arm \(mode == .mediaSession ? "skip" : "arrow")")
+        switch mode {
+        case .axSlider(let h):
+            sliderHandle = h
+            sliderAnchor = h.initialValue
+            NSLog("[MED] arm slider (\(h.label.prefix(40)))")
+        case .mediaSession: NSLog("[MED] arm skip")
+        case .arrowKeys:    NSLog("[MED] arm arrow")
+        }
     }
 
     public func reset() {
@@ -91,8 +117,36 @@ public final class MediaController {
     /// Called on each edge drag update. Routes to the active mode.
     public func handleScrubDelta(_ delta: Float) {
         switch mode {
+        case .axSlider:     handleSliderDelta(delta)
         case .mediaSession: handleSkipDelta(delta)
         case .arrowKeys:    handleArrowDelta(delta)
+        }
+    }
+
+    // MARK: - Slider mode (AX kAXValueAttribute)
+
+    private func handleSliderDelta(_ delta: Float) {
+        guard let handle = sliderHandle else { return }
+        let (_, _, amp) = updateAmp(delta)
+        let now = CACurrentMediaTime()
+        if (now - lastSliderWriteAt) * 1000 < sliderMinIntervalMs { return }
+
+        // delta is the signed cumulative travel from drag-start, in
+        // normalized edge units (0…1). Map to slider range with the
+        // sensitivity factor; velocity amp lets a flick cover more
+        // than one rangeFraction sweep.
+        let range = handle.maxValue - handle.minValue
+        let offset = Double(delta) * Double(amp) * sliderRangeFraction * range
+        let target = sliderAnchor + offset
+        if AXScrubber.setValue(handle, to: target) {
+            lastSliderWriteAt = now
+        } else {
+            // Slider write failed — element vanished or AX rejected.
+            // Switch to arrow-key fallback for the rest of the drag so
+            // the user still gets some response.
+            NSLog("[MED] slider write failed — falling back to arrow keys")
+            sliderHandle = nil
+            mode = .arrowKeys
         }
     }
 

@@ -31,7 +31,10 @@ import Foundation
 public enum AXScrubber {
 
     /// A located scrubber and the values needed to drive it.
-    public struct Handle {
+    /// `AXUIElement` is a CFType (retain/release-managed) so it is
+    /// safe to share across actors — the @unchecked is just because
+    /// the compiler can't see the C-level memory management.
+    public struct Handle: @unchecked Sendable {
         public let element: AXUIElement
         public let initialValue: Double
         public let minValue: Double
