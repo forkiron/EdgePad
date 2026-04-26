@@ -45,56 +45,74 @@ final class ContextDetector: @unchecked Sendable {
     /// Called by AppDelegate on every global left-mouse-down. Walks the
     /// AX tree at the click point looking for a video role/subrole.
     func noteClick(at point: CGPoint) {
-        let isVideo = elementUnderPointLooksLikeVideo(point)
-        if isVideo != lastClickWasOnMedia {
-            NSLog("[CTX] click at (\(Int(point.x)), \(Int(point.y))) → media=\(isVideo)")
-        }
+        let (isVideo, chain) = scanForVideo(at: point)
+        // Log every click for now so we can verify the monitor is firing
+        // and see what AX roles WebKit/Chromium actually publish at the
+        // click target. Tighten back to toggle-only once roles stabilize.
+        NSLog("[CTX] click at (\(Int(point.x)), \(Int(point.y))) → media=\(isVideo) chain=[\(chain)]")
         lastClickWasOnMedia = isVideo
     }
 
-    /// AX role/subrole strings that we treat as a video element. Covers
-    /// HTML5 `<video>` in WebKit (`AXVideo` subrole on a group), AVKit's
-    /// `AVPlayerView`, and the explicit `AXVideo` role some apps publish.
-    private static let videoAXRoles: Set<String> = [
-        "AXVideo", "AXVideoArea", "AXMovie",
+    /// Substrings we accept anywhere in role / subrole / description. Wide
+    /// net on purpose: "video" covers WebKit's AXVideo, "movie" covers
+    /// older AVKit, "player" catches button labels like "video player".
+    /// Tightened later once we see what real apps publish.
+    private static let videoNeedles: [String] = [
+        "video", "movie", "player",
     ]
 
-    private func elementUnderPointLooksLikeVideo(_ point: CGPoint) -> Bool {
+    /// Returns (isVideo, chain) where `chain` is a debug string of the
+    /// roles/subroles walked. The walk goes both up the parent chain
+    /// AND down into the first child of each level — WebKit sometimes
+    /// puts the AXVideo subrole on a sibling that the hit-test missed.
+    private func scanForVideo(at point: CGPoint) -> (Bool, String) {
         let systemWide = AXUIElementCreateSystemWide()
         var element: AXUIElement?
         let status = AXUIElementCopyElementAtPosition(
             systemWide, Float(point.x), Float(point.y), &element
         )
-        guard status == .success, let leaf = element else { return false }
+        guard status == .success, let leaf = element else {
+            return (false, "no-hit")
+        }
 
-        // Walk up to 6 levels of ancestors. WebKit nests the AXVideo
-        // subrole one or two layers deep inside the click target (the
-        // visible play overlay or controls strip is what gets hit).
+        var trail: [String] = []
         var current: AXUIElement? = leaf
-        for _ in 0..<6 {
-            guard let el = current else { return false }
-            if axElementMatches(el) { return true }
+        for _ in 0..<8 {
+            guard let el = current else { break }
+            let (role, sub, desc) = inspect(el)
+            trail.append("\(role)/\(sub)\(desc.isEmpty ? "" : ":\(desc.prefix(30))")")
+            if matches(role: role, subrole: sub, desc: desc) {
+                return (true, trail.joined(separator: " > "))
+            }
             var parentRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(el, kAXParentAttribute as CFString, &parentRef) == .success,
                let parent = parentRef, CFGetTypeID(parent) == AXUIElementGetTypeID() {
                 current = (parent as! AXUIElement)
             } else {
-                return false
+                break
             }
         }
-        return false
+        return (false, trail.joined(separator: " > "))
     }
 
-    private func axElementMatches(_ element: AXUIElement) -> Bool {
-        var roleRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
-           let role = roleRef as? String, Self.videoAXRoles.contains(role) {
-            return true
+    private func inspect(_ el: AXUIElement) -> (String, String, String) {
+        func str(_ key: String) -> String {
+            var ref: CFTypeRef?
+            if AXUIElementCopyAttributeValue(el, key as CFString, &ref) == .success,
+               let s = ref as? String { return s }
+            return ""
         }
-        var subRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subRef) == .success,
-           let sub = subRef as? String, Self.videoAXRoles.contains(sub) {
-            return true
+        return (str(kAXRoleAttribute as String),
+                str(kAXSubroleAttribute as String),
+                str(kAXRoleDescriptionAttribute as String))
+    }
+
+    private func matches(role: String, subrole: String, desc: String) -> Bool {
+        let haystacks = [role, subrole, desc].map { $0.lowercased() }
+        for needle in Self.videoNeedles {
+            for h in haystacks where h.contains(needle) {
+                return true
+            }
         }
         return false
     }
