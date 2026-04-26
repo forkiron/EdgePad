@@ -39,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     // Global key monitor for typing suppression
     private var keyMonitor: Any?
+    // Global click monitor — every left-click re-evaluates whether the
+    // user clicked into a video element, so the next edge drag can flip
+    // top → mediaScrub on any site / app without per-bundle hardcoding.
+    private var clickMonitor: Any?
 
     // MARK: - Lifecycle
 
@@ -57,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
         setupStatusItem()
         setupKeyMonitor()
+        setupClickMonitor()
 
         capture.start(routingTo: detector)
 
@@ -111,6 +116,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         capture.stop()
         context.stop()
         if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = clickMonitor {
             NSEvent.removeMonitor(monitor)
         }
     }
@@ -300,13 +308,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         NSApp.terminate(nil)
     }
 
-    // MARK: - Typing suppression monitor
+    // MARK: - Global event monitors
 
     private func setupKeyMonitor() {
         keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.detector.noteKeyDown()
             }
+        }
+    }
+
+    /// Watch every left-mouse-down system-wide. When the user clicks,
+    /// query AX for the element at the click point; if it looks like a
+    /// video, flip ContextDetector's `lastClickWasOnMedia` flag so the
+    /// next top-edge drag resolves to mediaScrub. The flag also resets
+    /// on a non-video click — clicking out of the video deactivates
+    /// scrub the same gesture-cycle the user lands somewhere else.
+    private func setupClickMonitor() {
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+            // NSEvent locationInWindow is in flipped Cocoa coords; we
+            // need top-left-origin screen coords for AX. CGEvent gives
+            // us that directly.
+            let screenPoint = CGEvent(source: nil)?.location ?? .zero
+            Task { @MainActor [weak self] in
+                self?.context.noteClick(at: screenPoint)
+            }
+            _ = event
         }
     }
 

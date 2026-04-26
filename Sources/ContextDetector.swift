@@ -35,6 +35,70 @@ final class ContextDetector: @unchecked Sendable {
     init() {}
     func stop() {}
 
+    /// True if the user's most recent click landed on (or inside) a video
+    /// element, per AX role/subrole inspection. Updated by AppDelegate's
+    /// global mouse-down monitor. Survives across edge drags so the flag
+    /// is still set when the user lifts their click finger and reaches
+    /// for the trackpad edge.
+    private(set) var lastClickWasOnMedia: Bool = false
+
+    /// Called by AppDelegate on every global left-mouse-down. Walks the
+    /// AX tree at the click point looking for a video role/subrole.
+    func noteClick(at point: CGPoint) {
+        let isVideo = elementUnderPointLooksLikeVideo(point)
+        if isVideo != lastClickWasOnMedia {
+            NSLog("[CTX] click at (\(Int(point.x)), \(Int(point.y))) → media=\(isVideo)")
+        }
+        lastClickWasOnMedia = isVideo
+    }
+
+    /// AX role/subrole strings that we treat as a video element. Covers
+    /// HTML5 `<video>` in WebKit (`AXVideo` subrole on a group), AVKit's
+    /// `AVPlayerView`, and the explicit `AXVideo` role some apps publish.
+    private static let videoAXRoles: Set<String> = [
+        "AXVideo", "AXVideoArea", "AXMovie",
+    ]
+
+    private func elementUnderPointLooksLikeVideo(_ point: CGPoint) -> Bool {
+        let systemWide = AXUIElementCreateSystemWide()
+        var element: AXUIElement?
+        let status = AXUIElementCopyElementAtPosition(
+            systemWide, Float(point.x), Float(point.y), &element
+        )
+        guard status == .success, let leaf = element else { return false }
+
+        // Walk up to 6 levels of ancestors. WebKit nests the AXVideo
+        // subrole one or two layers deep inside the click target (the
+        // visible play overlay or controls strip is what gets hit).
+        var current: AXUIElement? = leaf
+        for _ in 0..<6 {
+            guard let el = current else { return false }
+            if axElementMatches(el) { return true }
+            var parentRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(el, kAXParentAttribute as CFString, &parentRef) == .success,
+               let parent = parentRef, CFGetTypeID(parent) == AXUIElementGetTypeID() {
+                current = (parent as! AXUIElement)
+            } else {
+                return false
+            }
+        }
+        return false
+    }
+
+    private func axElementMatches(_ element: AXUIElement) -> Bool {
+        var roleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success,
+           let role = roleRef as? String, Self.videoAXRoles.contains(role) {
+            return true
+        }
+        var subRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subRef) == .success,
+           let sub = subRef as? String, Self.videoAXRoles.contains(sub) {
+            return true
+        }
+        return false
+    }
+
     // MARK: - Edge action resolution
 
     func resolveAction(for edge: TrackpadEdge) -> EdgeAction {
@@ -61,9 +125,17 @@ final class ContextDetector: @unchecked Sendable {
         return action
     }
 
-    // MARK: - Media detection (window title + app bundle ID)
+    // MARK: - Media detection
 
     private func isMediaContext() -> Bool {
+        // Most universal signal: the user clicked a video element. Works
+        // on any site (X, LinkedIn, random blogs) and any AX-aware app
+        // without per-app bundle IDs or per-site title matching.
+        if lastClickWasOnMedia {
+            NSLog("[CTX] last click was on a video element")
+            return true
+        }
+
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bid = app.bundleIdentifier else { return false }
 
@@ -73,7 +145,9 @@ final class ContextDetector: @unchecked Sendable {
             return true
         }
 
-        // Browsers — check window title for video sites
+        // Browsers — check window title for video sites (legacy fallback
+        // for the common case where the user hasn't clicked yet but is
+        // obviously on YouTube/Netflix/etc.)
         if Self.browserApps.contains(bid) {
             if let title = windowTitle(for: app.processIdentifier) {
                 for site in Self.videoSites {
