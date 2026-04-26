@@ -44,15 +44,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     // top → mediaScrub on any site / app without per-bundle hardcoding.
     private var clickMonitor: Any?
 
-    /// Bundle IDs of desktop video apps where arrow keys are the canonical
-    /// seek control and MediaSession coverage is unreliable. Top-edge scrub
-    /// uses arrow-key mode for these; everything else gets the universal
-    /// MR.SendCommand SkipForward15 / GoBack15 path.
-    private let arrowKeyApps: Set<String> = [
-        "com.colliderli.iina",
-        "org.videolan.vlc",
-        "com.apple.QuickTimePlayerX",
-        "io.mpv",
+    /// Bundle IDs of native music / podcast / TV apps that ignore arrow
+    /// keys for seek but DO respond to MR.SendCommand SkipForward15 /
+    /// GoBack15. Top-edge scrub uses skip mode for these; everything else
+    /// (browsers, IINA, VLC, QuickTime, mpv, generic HTML5 video) gets
+    /// arrow keys, which give smooth velocity-amplified seek anywhere
+    /// the focused player binds Left/Right=±N seconds. This routing
+    /// optimizes the most common path (video in a browser) while still
+    /// covering Music / Podcasts / Apple TV / Spotify.
+    private let skipApps: Set<String> = [
+        "com.apple.Music",
+        "com.apple.podcasts",
+        "com.apple.TV",
+        "com.spotify.client",
     ]
 
     // MARK: - Lifecycle
@@ -393,13 +397,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             NSLog("[APP]   start brightness = \(brightness.currentBrightness())")
             NativeHUD.showBrightness(brightness.currentBrightness())
         case .mediaScrub:
-            // Pick mode based on the frontmost app: arrow keys for the
-            // few desktop video apps where that's the canonical seek
-            // control AND MediaSession coverage is patchy; everything
-            // else (browsers, Music, Podcasts, Spotify, Apple TV, ...)
-            // gets MR.SendCommand which routes through Now Playing.
-            media.arm(mode: arrowKeyApps.contains(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "")
-                      ? .arrowKeys : .mediaSession)
+            // Default to arrow keys — they give smooth velocity-amplified
+            // seek anywhere the focused player binds Left/Right (which is
+            // every HTML5 <video> in a browser, IINA, VLC, QuickTime,
+            // mpv, etc.). Switch to MR.SendCommand skip-15 only for the
+            // small list of native music/podcast apps that ignore arrows
+            // entirely.
+            media.arm(mode: skipApps.contains(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "")
+                      ? .mediaSession : .arrowKeys)
             overlay.showPulse(kind: .scrub, direction: 0)
         case .scrollHorizontal, .scrollVertical:
             scroll.beginGesture()

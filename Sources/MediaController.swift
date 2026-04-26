@@ -65,7 +65,7 @@ public final class MediaController {
         set { arrowStepSize = newValue }
     }
 
-    private var mode: Mode = .mediaSession
+    private var mode: Mode = .arrowKeys
     private var accumulator: Float = 0
     private var lastDelta: Float = 0
     private var lastTime: CFTimeInterval = 0
