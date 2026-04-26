@@ -52,18 +52,27 @@ public enum AXScrubber {
     ]
 
     /// Anti-hints — sliders matching these are almost never the
-    /// playback scrubber (volume, brightness, zoom, font size, ...).
+    /// playback scrubber. "scroll" / "scrollbar" / "page" reject the
+    /// page's own scrollbar slider (which some browsers expose as
+    /// AXSlider rather than AXScrollBar); the rest reject volume /
+    /// zoom / etc.
     private static let scrubberAntiHints: [String] = [
+        "scroll", "scrollbar", "page", "vertical scroll", "horizontal scroll",
         "volume", "brightness", "zoom", "speed", "rate", "size", "scale",
     ]
 
     /// Find a plausible scrubber for the current focus state. Returns
     /// nil if nothing slidery is exposed via AX.
+    ///
+    /// Only the under-cursor and walk-up-from-focus paths run — they
+    /// require the user to have positioned the cursor near the
+    /// scrubber, which keeps the search bounded AND prevents us from
+    /// grabbing an unrelated AXSlider somewhere else in the window
+    /// (e.g. browser zoom UI, settings controls, page scrollbar).
     public static func findSlider() -> Handle? {
         let cursor = CGEvent(source: nil)?.location ?? .zero
         if let h = sliderUnderPoint(cursor) { return capture(h, label: "under cursor") }
         if let h = sliderFromFocus()         { return capture(h, label: "from focus") }
-        if let h = sliderFromFocusedWindow() { return capture(h, label: "from window") }
         return nil
     }
 
@@ -95,17 +104,6 @@ public enum AXScrubber {
         return walkUpToSlider(from: cf as! AXUIElement)
     }
 
-    private static func sliderFromFocusedWindow() -> AXUIElement? {
-        let systemWide = AXUIElementCreateSystemWide()
-        var appRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &appRef) == .success,
-              let app = appRef, CFGetTypeID(app) == AXUIElementGetTypeID() else { return nil }
-        var winRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app as! AXUIElement, kAXFocusedWindowAttribute as CFString, &winRef) == .success,
-              let win = winRef, CFGetTypeID(win) == AXUIElementGetTypeID() else { return nil }
-        return descendForScrubber(win as! AXUIElement, depth: 0)
-    }
-
     /// From a starting element, walk up to 8 ancestors looking for an
     /// AXSlider. Returns the first plausible scrubber.
     private static func walkUpToSlider(from start: AXUIElement) -> AXUIElement? {
@@ -127,19 +125,6 @@ public enum AXScrubber {
             } else {
                 return nil
             }
-        }
-        return nil
-    }
-
-    /// Recursive descent into a window looking for a scrubber. Kept
-    /// shallow (default depth 16) to bound cost — modern web pages
-    /// have deep AX trees and a full walk is too slow.
-    private static func descendForScrubber(_ element: AXUIElement, depth: Int) -> AXUIElement? {
-        if depth > 16 { return nil }
-        if let slider = matchSlider(element) { return slider }
-        guard let children = childrenOf(element) else { return nil }
-        for child in children {
-            if let s = descendForScrubber(child, depth: depth + 1) { return s }
         }
         return nil
     }
