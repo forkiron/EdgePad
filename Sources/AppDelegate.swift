@@ -357,12 +357,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         case .mediaScrub:
             media.reset()
             overlay.showPulse(kind: .scrub, direction: 0)
-        case .scrollHorizontal:
+        case .scrollHorizontal, .scrollVertical:
             scroll.beginGesture()
-            overlay.showPulse(kind: .scrollHorizontal, direction: 0)
-        case .scrollVertical:
-            scroll.beginGesture()
-            overlay.showPulse(kind: .scrollVertical, direction: 0)
         case .disabled:
             break
         }
@@ -397,10 +393,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             overlay.showPulse(kind: .scrub, direction: event.delta >= 0 ? 1 : -1)
         case .scrollHorizontal:
             scroll.handleHorizontalEdgeDelta(event.delta)
-            overlay.showPulse(kind: .scrollHorizontal, direction: event.delta >= 0 ? 1 : -1)
         case .scrollVertical:
             scroll.handleVerticalEdgeDelta(event.delta)
-            overlay.showPulse(kind: .scrollVertical, direction: event.delta >= 0 ? 1 : -1)
         case .disabled:
             break
         }

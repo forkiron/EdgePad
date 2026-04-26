@@ -1,9 +1,11 @@
 // OverlayWindow.swift
 //
 // Borderless, click-through, always-on-top HUD window for actions that
-// don't have a native macOS HUD equivalent (scrub, scroll). Volume and
-// brightness go through NativeHUD instead — they trigger the real
-// OSDManager overlay so the user sees Apple's actual HUD.
+// don't have a native macOS HUD equivalent (currently just scrub).
+// Volume and brightness go through NativeHUD instead — they trigger
+// the real OSDManager overlay so the user sees Apple's actual HUD.
+// Scroll has no overlay: the page moving under the cursor is the
+// feedback.
 
 import AppKit
 
@@ -12,22 +14,16 @@ public final class OverlayWindow {
 
     public enum HUDKind {
         case scrub
-        case scrollHorizontal
-        case scrollVertical
 
         var icon: String {
             switch self {
-            case .scrub:             return "\u{25B6}"   // ▶
-            case .scrollHorizontal:  return "\u{2B0C}"   // ⬌
-            case .scrollVertical:    return "\u{2B0D}"   // ⬍
+            case .scrub: return "\u{25B6}"   // ▶
             }
         }
 
         var label: String {
             switch self {
-            case .scrub:             return "Scrub"
-            case .scrollHorizontal:  return "Scroll"
-            case .scrollVertical:    return "Scroll"
+            case .scrub: return "Scrub"
             }
         }
     }
@@ -154,10 +150,6 @@ private final class HUDView: NSView {
         switch kind {
         case .scrub:
             arrow = pulseDirection >= 0 ? "\u{25B6}\u{25B6}" : "\u{25C0}\u{25C0}"
-        case .scrollHorizontal:
-            arrow = pulseDirection >= 0 ? "\u{279C}" : "\u{2B05}"
-        case .scrollVertical:
-            arrow = pulseDirection >= 0 ? "\u{2B06}" : "\u{2B07}"
         }
         let arrowFont = NSFont.systemFont(ofSize: 36, weight: .bold)
         let alpha = 0.4 + 0.5 * abs(pulseDirection)
