@@ -27,20 +27,32 @@ public final class VolumeController {
 
     public func currentVolume() -> Float {
         guard let device = defaultOutputDevice() else { return 0 }
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var volume: Float32 = 0
-        var size = UInt32(MemoryLayout<Float32>.size)
-        let status = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &volume)
-        if status == noErr { return max(0, min(1, Float(volume))) }
 
-        // Fall back to channel 1 on devices that only expose per-channel.
-        address.mElement = 1
-        let s2 = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &volume)
-        return s2 == noErr ? max(0, min(1, Float(volume))) : 0
+        // Some output devices (notably Bluetooth/USB) return noErr on the
+        // main element with value=0 even though channels 1+2 carry the real
+        // volume. Read from all three and take the max — safest with the
+        // various ways CoreAudio splits volume across elements.
+        var best: Float = 0
+        var anyFound = false
+        for element: AudioObjectPropertyElement in [kAudioObjectPropertyElementMain, 1, 2] {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyVolumeScalar,
+                mScope: kAudioDevicePropertyScopeOutput,
+                mElement: element
+            )
+            guard AudioObjectHasProperty(device, &address) else { continue }
+            var volume: Float32 = 0
+            var size = UInt32(MemoryLayout<Float32>.size)
+            let status = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &volume)
+            if status == noErr {
+                best = max(best, Float(volume))
+                anyFound = true
+            }
+        }
+        if !anyFound {
+            NSLog("[VOL] ✗ no volume property exposed on any element")
+        }
+        return max(0, min(1, best))
     }
 
     @discardableResult

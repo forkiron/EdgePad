@@ -54,6 +54,13 @@ public final class EdgeDetector {
     /// by typing; this only gates new drags.
     public var typingSuppressionWindow: TimeInterval = 0.30
 
+    /// Touches with `pressure` (MultitouchSupport size) above this
+    /// threshold are treated as palm contacts and ignored. Empirically:
+    /// fingertips report ~0.3–1.5, thumbs ~1.0–2.0, palm-rests run 2.5+.
+    /// Set high enough to allow firm thumb-presses without false palm
+    /// rejection on small-handed users.
+    public var palmSizeThreshold: Float = 2.2
+
     // MARK: - Intent detection
     // Rejects navigation gestures (e.g. swiping toward a button) that
     // happen to cross an edge zone. Analyzes velocity and direction
@@ -103,6 +110,15 @@ public final class EdgeDetector {
 
         if let edge = activeEdge, let id = activeTouchID {
             guard sample.id == id else { return }
+            // Palm-rejection mid-drag: if the contact size grows beyond the
+            // palm threshold (e.g. a finger drag morphing into a palm-rest),
+            // end the drag rather than continue acting on it.
+            if sample.pressure > palmSizeThreshold {
+                NSLog("[EDGE] active drag on \(edge) grew to size=\(String(format: "%.2f", sample.pressure)) — palm, ending")
+                endActiveDrag()
+                centerTouchIDs.insert(sample.id)
+                return
+            }
             continueDrag(on: edge, sample: sample)
             return
         }
@@ -117,6 +133,15 @@ public final class EdgeDetector {
 
         // Try to start an edge drag (only reachable if touch began in edge zone)
         guard let edge = classify(x: sample.x, y: sample.y) else {
+            return
+        }
+
+        // Palm rejection: large contacts are almost always palm-rests rather
+        // than deliberate fingertips. Lock the touch out for its lifetime so
+        // it can't restart a candidate drag if its size dips momentarily.
+        if sample.pressure > palmSizeThreshold {
+            NSLog("[EDGE] rejected palm contact on \(edge) (size=\(String(format: "%.2f", sample.pressure)) > \(palmSizeThreshold)) id=\(sample.id)")
+            centerTouchIDs.insert(sample.id)
             return
         }
 

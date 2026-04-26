@@ -3,7 +3,9 @@
 #
 # Usage:
 #   ./build.sh        → build + wrap into build/EdgePad.app
-#   ./build.sh run    → build + wrap + launch
+#   ./build.sh run    → build + wrap + launch (background, no logs)
+#   ./build.sh dev    → build + wrap + launch in foreground with live logs
+#                       (kills any running EdgePad first)
 #   ./build.sh clean  → remove build artifacts
 
 set -euo pipefail
@@ -49,8 +51,14 @@ chmod +x "$MACOS/$APP_NAME"
 
 cp Resources/Info.plist "$CONTENTS/Info.plist"
 
-echo "▸ Ad-hoc signing…"
-codesign --force --deep --sign - "$APP_BUNDLE"
+CERT_NAME="EdgePad Local Dev"
+if security find-certificate -c "$CERT_NAME" >/dev/null 2>&1; then
+    echo "▸ Signing with '$CERT_NAME'…"
+    codesign --force --deep --sign "$CERT_NAME" "$APP_BUNDLE"
+else
+    echo "▸ Ad-hoc signing… (run scripts/codesign/setup_local.sh once for stable signing)"
+    codesign --force --deep --sign - "$APP_BUNDLE"
+fi
 
 echo "✓ Built $APP_BUNDLE"
 echo ""
@@ -61,4 +69,10 @@ echo ""
 if [ "${1:-}" = "run" ]; then
     echo "▸ Launching…"
     open "$APP_BUNDLE"
+fi
+
+if [ "${1:-}" = "dev" ]; then
+    pkill -x "$APP_NAME" 2>/dev/null || true
+    echo "▸ Launching in foreground (Ctrl-C to stop)…"
+    exec "$MACOS/$APP_NAME"
 fi

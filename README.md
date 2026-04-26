@@ -184,9 +184,7 @@ Short version:
 
 ## Contributing
 
-Issues and PRs are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening anything large.
-
-If you want to add a new edge action, start by reading [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and then implementing a new `EdgeAction` case + matching controller. The `EdgeDetector` is already generic.
+EdgePad is a personal project. Bug reports are welcome via GitHub issues; please don't open a PR without asking first. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

@@ -50,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
         NSApp.setActivationPolicy(.accessory)
 
+        enableBackgroundCursorHiding()
         checkAccessibilityPermission()
 
         detector.delegate = self
@@ -312,15 +313,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     // MARK: - EdgeDetectorDelegate
 
     func edgeDetector(_ detector: EdgeDetector, didBeginDragOn edge: TrackpadEdge, at position: Float) {
-        let action: EdgeAction
+        var action: EdgeAction
         if activePreset == .auto {
             action = context.resolveAction(for: edge)
         } else {
             action = activeProfile.action(for: edge)
         }
+
+        // Scroll-capability gate, ONLY in Auto mode. Manual profiles
+        // (Media, Reading) are explicit user intent — trust them. This
+        // also gives the user an escape hatch when AX detection misfires
+        // (browser zoom, pinch-zoom, Electron apps that hide bars):
+        // switch to Reading and the bottom/right edges always scroll.
+        if activePreset == .auto && (action == .scrollHorizontal || action == .scrollVertical) {
+            let cursorPos = CGEvent(source: nil)?.location ?? .zero
+            let axis: ScrollAxis = (action == .scrollHorizontal) ? .horizontal : .vertical
+            if !ScrollDetector.canScroll(at: cursorPos, axis: axis) {
+                NSLog("[APP] suppressed \(action.rawValue) — no \(axis) scroll capability under cursor")
+                action = .disabled
+            }
+        }
+
         activeDragAction = action
+
+        // Cursor lock:
+        //   - global controls (volume/brightness/scrub): hide + disassociate
+        //   - scroll: hide + warp per-frame, but DON'T disassociate (that
+        //     breaks CGEvent scroll routing through cghidEventTap)
+        let isScroll = (action == .scrollHorizontal || action == .scrollVertical)
         if action != .disabled {
-            beginCursorLock()
+            beginCursorLock(hideCursor: true, disassociate: !isScroll)
         }
         NSLog("[APP] ▶ BEGIN \(edge) → action=\(action.rawValue)")
         switch action {
@@ -336,10 +358,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             media.reset()
             overlay.showPulse(kind: .scrub, direction: 0)
         case .scrollHorizontal:
-            scroll.reset()
+            scroll.beginGesture()
             overlay.showPulse(kind: .scrollHorizontal, direction: 0)
         case .scrollVertical:
-            scroll.reset()
+            scroll.beginGesture()
             overlay.showPulse(kind: .scrollVertical, direction: 0)
         case .disabled:
             break
@@ -347,9 +369,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     }
 
     func edgeDetector(_ detector: EdgeDetector, didUpdate event: EdgeDragEvent) {
-        // Each update keeps the watchdog alive — if frames stop, the lock
-        // will auto-release 3s later instead of stranding the cursor.
-        if cursorLocked { armCursorWatchdog() }
+        // Per-frame warp pins the cursor for global controls (volume/
+        // brightness/scrub) where it's been disassociated from input.
+        //
+        // For scroll the cursor is hidden but NOT disassociated — the hide
+        // is purely visual; underlying mouse position stays free to follow
+        // the finger. We must NOT warp here: CGWarpMouseCursorPosition
+        // generates synthetic mouse-position changes that break scroll
+        // event routing through the HID tap.
+        if cursorLocked {
+            if cursorDisassociated, let pos = savedCursorPosition {
+                CGWarpMouseCursorPosition(pos)
+            }
+            armCursorWatchdog()
+        }
         switch activeDragAction {
         case .volume:
             let new = volume.applyDelta(event.delta)
@@ -375,6 +408,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     func edgeDetector(_ detector: EdgeDetector, didEndDragOn edge: TrackpadEdge) {
         NSLog("[APP] ◼ END \(edge)")
+        // Send the trackpad-style `phase=ended` so AppKit scroll views
+        // can settle properly. No-op if no scroll gesture was active.
+        scroll.endGesture()
         activeDragAction = .disabled
         endCursorLock()
     }
@@ -394,14 +430,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     // per drag and guard against double calls.
 
     private var cursorLocked = false
+    private var cursorHidden = false
+    private var cursorDisassociated = false
     private var cursorWatchdog: DispatchWorkItem?
 
-    private func beginCursorLock() {
+    /// Make CGDisplayHideCursor actually hide the cursor while EdgePad is a
+    /// background (menu-bar accessory) app. Without this, hide calls are
+    /// no-ops because the OS only honors them for the frontmost app.
+    ///
+    /// We bind two private SkyLight symbols at runtime:
+    ///   _CGSDefaultConnection() -> int connection ID for this process
+    ///   CGSSetConnectionProperty(cid, target, key, value)
+    /// and set the well-known "SetsCursorInBackground" property to true.
+    /// This is the same technique BetterTouchTool, Cursorcerer, etc. use.
+    private func enableBackgroundCursorHiding() {
+        typealias DefaultConnFn = @convention(c) () -> Int32
+        typealias SetPropFn     = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> CInt
+
+        let path = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
+        guard let h = dlopen(path, RTLD_LAZY) else {
+            let err = dlerror().map { String(cString: $0) } ?? "unknown error"
+            NSLog("[APP] ✗ SkyLight dlopen failed: \(err) — cursor will stay visible during drags")
+            return
+        }
+        guard let defSym = dlsym(h, "_CGSDefaultConnection"),
+              let setSym = dlsym(h, "CGSSetConnectionProperty") else {
+            NSLog("[APP] ✗ SkyLight: missing _CGSDefaultConnection or CGSSetConnectionProperty")
+            return
+        }
+        let defaultConn = unsafeBitCast(defSym, to: DefaultConnFn.self)
+        let setProp     = unsafeBitCast(setSym, to: SetPropFn.self)
+        let cid = defaultConn()
+        let key = "SetsCursorInBackground" as CFString
+        let rc = setProp(cid, cid, key, kCFBooleanTrue)
+        if rc == 0 {
+            NSLog("[APP] ✓ SkyLight: SetsCursorInBackground enabled (cursor hide works in background)")
+        } else {
+            NSLog("[APP] ⚠ SkyLight: SetsCursorInBackground returned \(rc)")
+        }
+    }
+
+    private func beginCursorLock(hideCursor: Bool, disassociate: Bool) {
         if cursorLocked { return }
         cursorLocked = true
         savedCursorPosition = CGEvent(source: nil)?.location
-        CGAssociateMouseAndMouseCursorPosition(0) // 0 = false; disconnect cursor from input
-        CGDisplayHideCursor(CGMainDisplayID())
+        if disassociate {
+            CGAssociateMouseAndMouseCursorPosition(0) // 0 = false; disconnect cursor from input
+            cursorDisassociated = true
+        }
+        if hideCursor {
+            CGDisplayHideCursor(CGMainDisplayID())
+            cursorHidden = true
+        }
         armCursorWatchdog()
     }
 
@@ -410,12 +490,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         cursorWatchdog = nil
         guard cursorLocked else { return }
         cursorLocked = false
-        if let pos = savedCursorPosition {
+        if cursorHidden, let pos = savedCursorPosition {
             CGWarpMouseCursorPosition(pos)
-            savedCursorPosition = nil
         }
-        CGAssociateMouseAndMouseCursorPosition(1) // 1 = true; reconnect
-        CGDisplayShowCursor(CGMainDisplayID())
+        savedCursorPosition = nil
+        if cursorDisassociated {
+            CGAssociateMouseAndMouseCursorPosition(1) // 1 = true; reconnect
+            cursorDisassociated = false
+        }
+        if cursorHidden {
+            CGDisplayShowCursor(CGMainDisplayID())
+            cursorHidden = false
+        }
     }
 
     /// Defense-in-depth: if the trackpad stops sending touch frames mid-drag

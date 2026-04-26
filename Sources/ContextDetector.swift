@@ -42,19 +42,20 @@ final class ContextDetector: @unchecked Sendable {
         let action: EdgeAction
         switch edge {
         case .top:
+            // Scrub only makes sense when there's actually a video timeline.
             action = media ? .mediaScrub : .disabled
         case .left:
-            action = media ? .volume : .disabled
+            // Volume is universal — works in any context.
+            action = .volume
         case .bottom:
-            let (h, _) = detectScrollBars()
-            action = h ? .scrollHorizontal : .disabled
+            // Always intent horizontal scroll; ScrollDetector aborts at
+            // drag-start if the area under the cursor has no h-scroll.
+            action = .scrollHorizontal
         case .right:
-            let (_, v) = detectScrollBars()
-            if v {
-                action = .scrollVertical
-            } else {
-                action = media ? .brightness : .disabled
-            }
+            // On a video page, right is brightness (matches the Media
+            // profile). Anywhere else, intent vertical scroll —
+            // ScrollDetector validates at drag-start.
+            action = media ? .brightness : .scrollVertical
         }
         NSLog("[CTX] \(edge.rawValue) -> \(action.rawValue) media=\(media)")
         return action
