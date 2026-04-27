@@ -362,6 +362,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             action = activeProfile.action(for: edge)
         }
 
+        // Top-edge slider hunt: even when ContextDetector says "no
+        // media" (because audio isn't playing — paused or muted video,
+        // site we don't recognize via heuristics), an AX scrubber under
+        // the cursor is itself proof that the user is on a video. If
+        // we find one, promote to mediaScrub and reuse the cached
+        // Handle below so we don't re-query AX in the .mediaScrub arm.
+        var foundSlider: AXScrubber.Handle?
+        if activePreset == .auto, edge == .top {
+            foundSlider = AXScrubber.findSlider()
+            if foundSlider != nil, action == .disabled {
+                NSLog("[APP] top edge: no audio context but slider under cursor — scrubbing anyway")
+                action = .mediaScrub
+            }
+        }
+
         // Scroll-capability gate, ONLY in Auto mode. Manual profiles
         // (Media, Reading) are explicit user intent — trust them. This
         // also gives the user an escape hatch when AX detection misfires
@@ -397,14 +412,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             NSLog("[APP]   start brightness = \(brightness.currentBrightness())")
             NativeHUD.showBrightness(brightness.currentBrightness())
         case .mediaScrub:
-            // Try the AX scrubber first — direct writes to the page's
-            // <input type=range> / role=slider gives smooth, exact
-            // seeks regardless of keyboard focus or per-site keybinding
-            // quirks. Falls through to arrow keys (universal HTML5
-            // arrow=±5s) or to MR.SendCommand skip-15 for native music
-            // apps that ignore arrows.
+            // Slider mode is the smooth-scrub gold standard — direct
+            // AX writes into the page's <input type=range> / role=
+            // slider, bypasses per-site keybinding quirks. We may
+            // already have queried for one above; fall back to a
+            // fresh look if not, then to arrow keys / skip-15.
             let bid = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
-            if !skipApps.contains(bid), let slider = AXScrubber.findSlider() {
+            let slider = foundSlider ?? (skipApps.contains(bid) ? nil : AXScrubber.findSlider())
+            if let slider {
                 media.arm(mode: .axSlider(slider))
             } else if skipApps.contains(bid) {
                 media.arm(mode: .mediaSession)
