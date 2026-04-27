@@ -47,15 +47,19 @@ public struct EdgeProfile: Sendable, Equatable {
     }
 
     /// Default media-consumption profile. The app ships with this as the
-    /// active profile on first launch.
+    /// active profile on first launch. Media takes priority on every
+    /// edge — zoomed pages (where horizontal scroll is technically
+    /// available) don't hijack the bottom edge, because the user is
+    /// watching, not panning. If you want scroll on a zoomed page,
+    /// pick the Reading profile.
     ///
-    /// - Top:    media scrub (arrow keys to focused app)
+    /// - Top:    media scrub
     /// - Left:   volume
     /// - Right:  brightness
-    /// - Bottom: horizontal scroll
+    /// - Bottom: disabled
     public static let media = EdgeProfile(
         top: .mediaScrub,
-        bottom: .scrollHorizontal,
+        bottom: .disabled,
         left: .volume,
         right: .brightness
     )

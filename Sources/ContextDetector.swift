@@ -130,9 +130,12 @@ final class ContextDetector: @unchecked Sendable {
             // Volume is universal — works in any context.
             action = .volume
         case .bottom:
-            // Always intent horizontal scroll; ScrollDetector aborts at
+            // Media context takes priority: when the user is watching a
+            // video (even if the page is zoomed and could otherwise be
+            // panned horizontally), bottom edge does nothing. Outside
+            // media, intent horizontal scroll — ScrollDetector aborts at
             // drag-start if the area under the cursor has no h-scroll.
-            action = .scrollHorizontal
+            action = media ? .disabled : .scrollHorizontal
         case .right:
             // On a video page, right is brightness (matches the Media
             // profile). Anywhere else, intent vertical scroll —
