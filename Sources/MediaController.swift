@@ -78,33 +78,63 @@ public final class MediaController {
 
     // Slider mode state (only set when mode == .axSlider).
     private var sliderHandle: AXScrubber.Handle?
-    private var sliderAnchor: Double = 0
-    private var lastSliderWriteAt: CFTimeInterval = 0
-    /// One full edge sweep (delta=1.0) at zero velocity covers this
-    /// fraction of the slider's full range. 0.25 = a quarter of the
-    /// timeline per slow sweep; velocity amp pushes that toward full.
-    public var sliderRangeFraction: Double = 0.25
-    /// Min wall-clock interval between AX writes. AX value-set is
-    /// fast but the page's input listener still has to do work; 16ms
-    /// (~60Hz) is the natural ceiling.
+    private var sliderAnchorPoint: CGPoint = .zero  // where mouseDown landed
+    private var sliderLastPoint:   CGPoint = .zero  // last mouseDragged point
+    private var sliderMouseDown:   Bool    = false
+    private var lastSliderPostedAt: CFTimeInterval = 0
+    /// One full edge sweep (delta=1.0) at zero velocity drags the
+    /// thumb across this fraction of the slider's pixel width. 1.0 =
+    /// full timeline per slow sweep; velocity amp can push past 1.0
+    /// (fast flicks), which we clamp to the slider's edges.
+    public var sliderTravelFraction: Double = 1.0
+    /// Min wall-clock interval between mouseDragged events. The page
+    /// processes each one (sometimes through React reconciliation),
+    /// so 16ms ≈ 60Hz is a sane ceiling.
     public var sliderMinIntervalMs: Double = 16
 
     public init() {}
 
+    /// True while a synthetic slider drag is in flight. AppDelegate
+    /// reads this to skip its per-frame cursor warp — the warp would
+    /// fight the synthetic mouseDragged positions and the page would
+    /// see the cursor jittering between the scrubber and the saved
+    /// origin.
+    public var isDrivingCursor: Bool { sliderMouseDown }
+
     /// Configure mode for the next drag. Called by AppDelegate at
     /// drag-begin based on what AXScrubber found and which app is
-    /// frontmost.
+    /// frontmost. For .axSlider, this synthesizes the opening
+    /// mouseDown at the scrubber's thumb position; subsequent deltas
+    /// fire mouseDragged, and `endScrub()` fires the closing mouseUp.
     public func arm(mode: Mode) {
+        // If a previous slider drag is still open (something interrupted
+        // didEndDragOn), close it before starting a new one — otherwise
+        // the focused page thinks the mouse button is held forever.
+        if sliderMouseDown { closeSliderDrag() }
         self.mode = mode
         reset()
         switch mode {
         case .axSlider(let h):
             sliderHandle = h
-            sliderAnchor = h.initialValue
-            NSLog("[MED] arm slider (\(h.label.prefix(40)))")
+            sliderAnchorPoint = h.screenPoint(forValue: h.initialValue)
+            sliderLastPoint = sliderAnchorPoint
+            NSLog("[MED] arm slider (\(h.label.prefix(40))) at \("(\(Int(sliderAnchorPoint.x)), \(Int(sliderAnchorPoint.y)))")")
+            // mouseMove first so auto-hide controls reveal, then mouseDown
+            // at the thumb. Both events go through the HID tap so the
+            // focused app receives them as a real user click+drag.
+            postMouse(.mouseMoved,        at: sliderAnchorPoint)
+            postMouse(.leftMouseDown,     at: sliderAnchorPoint)
+            sliderMouseDown = true
+            lastSliderPostedAt = CACurrentMediaTime()
         case .mediaSession: NSLog("[MED] arm skip")
         case .arrowKeys:    NSLog("[MED] arm arrow")
         }
+    }
+
+    /// Called by AppDelegate on edgeDetector(_:didEndDragOn:). Posts
+    /// the closing mouseUp if a synthetic slider drag is in flight.
+    public func endScrub() {
+        if sliderMouseDown { closeSliderDrag() }
     }
 
     public func reset() {
@@ -123,31 +153,47 @@ public final class MediaController {
         }
     }
 
-    // MARK: - Slider mode (AX kAXValueAttribute)
+    // MARK: - Slider mode (synthetic mouse drag)
 
     private func handleSliderDelta(_ delta: Float) {
-        guard let handle = sliderHandle else { return }
+        guard let handle = sliderHandle, sliderMouseDown else { return }
         let (_, _, amp) = updateAmp(delta)
         let now = CACurrentMediaTime()
-        if (now - lastSliderWriteAt) * 1000 < sliderMinIntervalMs { return }
+        if (now - lastSliderPostedAt) * 1000 < sliderMinIntervalMs { return }
 
-        // delta is the signed cumulative travel from drag-start, in
-        // normalized edge units (0…1). Map to slider range with the
-        // sensitivity factor; velocity amp lets a flick cover more
-        // than one rangeFraction sweep.
-        let range = handle.maxValue - handle.minValue
-        let offset = Double(delta) * Double(amp) * sliderRangeFraction * range
-        let target = sliderAnchor + offset
-        if AXScrubber.setValue(handle, to: target) {
-            lastSliderWriteAt = now
-        } else {
-            // Slider write failed — element vanished or AX rejected.
-            // Switch to arrow-key fallback for the rest of the drag so
-            // the user still gets some response.
-            NSLog("[MED] slider write failed — falling back to arrow keys")
-            sliderHandle = nil
-            mode = .arrowKeys
-        }
+        // Map normalized edge travel → slider pixel travel. delta is
+        // signed and cumulative from drag-start; sliderTravelFraction
+        // scales "one edge sweep = N% of the slider width", and amp
+        // lets fast flicks blow past the slider edges (clamped below).
+        let pixelOffset = Double(delta) * Double(amp) * sliderTravelFraction * Double(handle.frame.width)
+        let xMin = handle.frame.minX + 1
+        let xMax = handle.frame.maxX - 1
+        let targetX = max(xMin, min(xMax, sliderAnchorPoint.x + CGFloat(pixelOffset)))
+        let target = CGPoint(x: targetX, y: handle.frame.midY)
+
+        postMouse(.leftMouseDragged, at: target)
+        sliderLastPoint = target
+        lastSliderPostedAt = now
+    }
+
+    /// Post the closing mouseUp at the last drag position and clear
+    /// the in-flight flag. Idempotent.
+    private func closeSliderDrag() {
+        guard sliderMouseDown else { return }
+        postMouse(.leftMouseUp, at: sliderLastPoint)
+        sliderMouseDown = false
+        sliderHandle = nil
+        NSLog("[MED] slider drag closed at \("(\(Int(sliderLastPoint.x)), \(Int(sliderLastPoint.y)))")")
+    }
+
+    private func postMouse(_ type: CGEventType, at point: CGPoint) {
+        guard let event = CGEvent(
+            mouseEventSource: CGEventSource(stateID: .hidSystemState),
+            mouseType: type,
+            mouseCursorPosition: point,
+            mouseButton: .left
+        ) else { return }
+        event.post(tap: .cghidEventTap)
     }
 
     // MARK: - Skip mode (MR.SendCommand)

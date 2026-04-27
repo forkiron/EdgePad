@@ -39,7 +39,19 @@ public enum AXScrubber {
         public let initialValue: Double
         public let minValue: Double
         public let maxValue: Double
+        /// Screen-coords frame of the slider. Used to compute the
+        /// thumb's pixel position for synthetic mouse drag.
+        public let frame: CGRect
         public let label: String   // for logging
+
+        /// Pixel X for a value in [minValue, maxValue], midpoint Y.
+        public func screenPoint(forValue value: Double) -> CGPoint {
+            let range = max(maxValue - minValue, 0.0001)
+            let t = (value - minValue) / range
+            let x = frame.minX + CGFloat(t) * frame.width
+            let y = frame.midY
+            return CGPoint(x: x, y: y)
+        }
     }
 
     /// Scrubber-y substrings we accept in role description / title /
@@ -74,16 +86,6 @@ public enum AXScrubber {
         if let h = sliderUnderPoint(cursor) { return capture(h, label: "under cursor") }
         if let h = sliderFromFocus()         { return capture(h, label: "from focus") }
         return nil
-    }
-
-    /// Write the slider to `value`, clamped to its known range. Returns
-    /// false on AX error so the caller can fall back to arrow keys.
-    @discardableResult
-    public static func setValue(_ handle: Handle, to value: Double) -> Bool {
-        let clamped = max(handle.minValue, min(handle.maxValue, value))
-        let n = NSNumber(value: clamped)
-        let status = AXUIElementSetAttributeValue(handle.element, kAXValueAttribute as CFString, n)
-        return status == .success
     }
 
     // MARK: - Search
@@ -181,13 +183,40 @@ public enum AXScrubber {
         let maxV = numberAttr(element, kAXMaxValueAttribute as CFString) ?? 1
         guard maxV > minV else { return nil }
 
+        // Frame in screen coords. Required for synthetic mouse drag —
+        // without it we can't compute the thumb's pixel X.
+        guard let frame = frameAttr(element), frame.width > 4, frame.height > 0 else {
+            NSLog("[AXS] candidate slider has no usable frame — skipping")
+            return nil
+        }
+
         // Prefer a human-readable label for logs.
         let title = stringAttr(element, kAXTitleAttribute as CFString)
             ?? stringAttr(element, kAXDescriptionAttribute as CFString)
             ?? stringAttr(element, kAXRoleDescriptionAttribute as CFString)
             ?? "(unnamed)"
-        NSLog("[AXS] found slider \(label): \"\(title.prefix(40))\" value=\(value) range=\(minV)…\(maxV)")
-        return Handle(element: element, initialValue: value, minValue: minV, maxValue: maxV, label: title)
+        NSLog("[AXS] found slider \(label): \"\(title.prefix(40))\" value=\(value) range=\(minV)…\(maxV) frame=\(frame.integral)")
+        return Handle(element: element, initialValue: value, minValue: minV, maxValue: maxV, frame: frame, label: title)
+    }
+
+    /// Read kAXPositionAttribute + kAXSizeAttribute and combine into a
+    /// screen-coords CGRect. Both attributes are AXValue-wrapped C
+    /// structs (CGPoint / CGSize); we have to unbox via AXValueGetValue.
+    private static func frameAttr(_ element: AXUIElement) -> CGRect? {
+        var posRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let pv = posRef, let sv = sizeRef,
+              CFGetTypeID(pv) == AXValueGetTypeID(),
+              CFGetTypeID(sv) == AXValueGetTypeID()
+        else { return nil }
+        var origin = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(pv as! AXValue, .cgPoint, &origin),
+              AXValueGetValue(sv as! AXValue, .cgSize,  &size)
+        else { return nil }
+        return CGRect(origin: origin, size: size)
     }
 
     // MARK: - AX helpers

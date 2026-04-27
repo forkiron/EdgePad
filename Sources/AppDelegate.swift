@@ -444,7 +444,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
         // generates synthetic mouse-position changes that break scroll
         // event routing through the HID tap.
         if cursorLocked {
-            if cursorDisassociated, let pos = savedCursorPosition {
+            // Skip the warp when MediaController is driving a synthetic
+            // slider drag — its mouseDragged events position the cursor
+            // intentionally and a warp here would fight them.
+            if cursorDisassociated, !media.isDrivingCursor, let pos = savedCursorPosition {
                 CGWarpMouseCursorPosition(pos)
             }
             armCursorWatchdog()
@@ -472,6 +475,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     func edgeDetector(_ detector: EdgeDetector, didEndDragOn edge: TrackpadEdge) {
         NSLog("[APP] ◼ END \(edge)")
+        // Close any in-flight synthetic slider drag BEFORE releasing
+        // the cursor lock — endCursorLock warps the cursor back to
+        // the saved origin, which would land the mouseUp event there
+        // instead of at the scrubber.
+        media.endScrub()
         // Send the trackpad-style `phase=ended` so AppKit scroll views
         // can settle properly. No-op if no scroll gesture was active.
         scroll.endGesture()
