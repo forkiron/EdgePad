@@ -124,9 +124,7 @@ System state changes go through Apple's own APIs:
 | Video scrub | `CGEvent` posting `←` and `→` keys to the focused app |
 | Horizontal / vertical scroll | `CGEvent` scroll wheel events, pixel units, posted to the focused app |
 
-For scrub and scroll, where macOS has no native HUD, we draw a small custom borderless `NSWindow` overlay (click-through, auto-hides after 0.6 s).
-
-For the full design, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). For the spec, read [docs/PRD.md](docs/PRD.md).
+For scrub, where macOS has no native HUD, we draw a small custom borderless `NSWindow` overlay (click-through, auto-hides after 0.6 s). Scroll has no overlay — the page moving under the cursor is the feedback.
 
 ---
 
@@ -166,17 +164,6 @@ Tests cover `EdgeDetector` state transitions and profile assignment. System cont
 
 ---
 
-## Roadmap
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full plan.
-
-Short version:
-
-- [x] v0.1 — project scaffold, PRD, architecture docs
-- [ ] v0.2 — all 4 edges working, HUD, typing suppression
-- [ ] v0.3 — Reading profile + hotkey + profile toggle
-- [ ] v0.4 — SwiftUI settings window
-- [ ] v0.5 — alpha DMG with ad-hoc signing
 - [ ] v0.9 — beta with Developer ID + notarization + Sparkle auto-update
 - [ ] v1.0 — public launch, Show HN, Homebrew cask
 
