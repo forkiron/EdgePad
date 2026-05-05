@@ -1,209 +1,159 @@
-# EdgePad
+<h1 align="center">
+  <br>
+  EdgePad
+  <br>
+</h1>
 
-> **The Touch Bar Apple killed, built into the trackpad you already have.**
+<p align="center">
+  <strong>Trackpad-edge controls for macOS.</strong>
+  <br>
+  Scrub media, adjust volume and brightness, and pan scrollable content without leaving the trackpad.
+</p>
 
-EdgePad turns the edges of your MacBook trackpad into system controls. Drag along the top edge to scrub a video. Drag along the left edge to set volume. Drag along the right edge to set brightness. Drag along the bottom edge to pan horizontally through zoomed images, wide spreadsheets, or accessibility Zoom.
-
-A separate **Reading mode** turns the right edge into a vertical scroller — so you can pan zoomed PDFs, magnified Safari pages, and macOS Zoom without ever mouse-reaching for the screen edges.
-
-Free. Open source. MIT licensed. 10 MB. 20 MB of RAM. Pure Swift.
-
-<!-- TODO: drop a 2-second loop GIF here that shows top-edge scrubbing a YouTube video in Safari. This GIF is the most important asset in the whole launch. -->
-
----
-
-## Why
-
-Apple removed the Touch Bar from the MacBook Pro in 2023. The scrub bar, the volume slider, the brightness slider — all gone, with no replacement. Meanwhile the trackpad kept getting bigger.
-
-EdgePad puts those controls back, on a surface every MacBook already has. No new hardware. No dongles. No Electron. Just the edges of the trackpad you're already touching.
-
-### What it replaces
-
-| Before | With EdgePad |
-|---|---|
-| Tap `F11` / `F12` for volume (16 discrete steps) | Slide the left edge — precise, continuous |
-| Tap `F1` / `F2` for brightness (same) | Slide the right edge |
-| Click the YouTube/Netflix/VLC timeline with the mouse | Slide the top edge |
-| Shift+scroll-wheel for horizontal scroll (clunky) | Slide the bottom edge |
-| Mouse to the screen edge to pan macOS Zoom | Switch to Reading mode and use right+bottom edges |
+<p align="center">
+  macOS 13+ | Swift 6 | Menu-bar app | MIT licensed
+</p>
 
 ---
+
+EdgePad turns the edges of a Mac trackpad into lightweight system controls. Drag the top edge to scrub media, the left edge to adjust volume, the right edge to adjust brightness or scroll vertically, and the bottom edge to scroll horizontally when the active mode allows it.
+
+It is a native Swift menu-bar app with no external Swift Package Manager dependencies. It reads raw trackpad contact data, classifies intentional edge drags, and sends the matching system action to macOS or the focused app.
+
+## What It Does
+
+| Edge | Auto mode | Media mode | Reading mode |
+| --- | --- | --- | --- |
+| Top | Media scrub when EdgePad detects media context | Media scrub | Media scrub |
+| Left | Volume | Volume | Volume |
+| Right | Brightness in media context, vertical scroll elsewhere | Brightness | Vertical scroll |
+| Bottom | Horizontal scroll outside media context | Disabled | Horizontal scroll |
+
+Auto mode is the default behavior in the current app. It uses the frontmost app, browser window title, recent clicks on video elements, CoreAudio activity, and accessibility information to decide whether an edge should act like a media control or a scroll control.
 
 ## Features
 
-- **Top-edge video scrub** — works in Safari (YouTube, Netflix, Twitch), VLC, QuickTime, IINA, Spotify desktop, and basically anything that responds to arrow keys
-- **Left-edge volume** — continuous, precise, via CoreAudio
-- **Right-edge brightness** — same, via `DisplayServices`
-- **Bottom-edge horizontal scroll** — for wide Numbers sheets, Figma canvases, zoomed images in Preview, long DAW/NLE timelines
-- **Reading mode** — toggle via menu bar or `⌃⌥⌘R`. Right edge becomes a vertical scroller, for zoomed PDFs, magnified web pages, and macOS accessibility Zoom
-- **Relative-delta control** — drags add to the _current_ value, so nothing jumps when you touch the edge
-- **Typing-aware dead zones** — edge gestures are suppressed for 300 ms after any key press, to kill accidental triggers
-- **Real macOS HUD** — volume and brightness drag the actual system overlay (via `OSDManager`), not a clone. Same chiclets, same fade, same display you'd see pressing F11/F12.
-- **Menu-bar only** — no dock icon, no windows, no distraction. Runs in the background, 20 MB of RAM
-- **No network** — zero telemetry, zero analytics, zero update pings unless you turn them on
-- **Open source** — MIT licensed, pure Swift, no hidden dependencies
+- **Top-edge media scrubbing** - uses an accessibility slider when one is available, MediaRemote skip commands for Now Playing sources, and arrow-key fallback for players that use keyboard seeking.
+- **Left-edge volume control** - reads and writes the default output device through CoreAudio.
+- **Right-edge brightness control** - uses macOS DisplayServices at runtime for built-in display brightness.
+- **Reading mode** - swaps the right edge from brightness to vertical scrolling and enables bottom-edge horizontal scrolling.
+- **Horizontal and vertical scrolling** - posts pixel-based scroll events with velocity amplification, sub-pixel accumulation, and momentum.
+- **Native macOS HUDs** - volume and brightness call the system OSD manager instead of drawing a clone.
+- **Scrub overlay** - media scrubbing gets a small click-through overlay for feedback.
+- **Typing and palm rejection** - suppresses new edge gestures shortly after typing and rejects obvious palm contacts.
+- **Adjustable sensitivity** - tune global sensitivity, individual action sensitivity, and edge-zone size from the menu-bar menu.
+- **No bundled network code** - the current source tree contains no telemetry, analytics, or updater network calls.
 
----
+## System Requirements
 
-## System requirements
+- macOS 13 Ventura or later
+- Swift 6.0 or later
+- Xcode Command Line Tools or Xcode 16+
+- A Mac trackpad device exposed through Apple's multitouch framework
+- Accessibility permission for keyboard and scroll event posting
 
-- **macOS 13 Ventura** or later
-- **Apple Silicon or Intel** (both supported)
-- **Built-in MacBook trackpad** (external Magic Trackpad also supported)
-
----
+EdgePad uses private Apple frameworks for raw multitouch capture, brightness, MediaRemote commands, and native HUD display. Those frameworks are loaded dynamically at runtime, so the app can fail gracefully if a future macOS release changes one of them.
 
 ## Installation
 
-### Option 1: Download the DMG (recommended once we cut a release)
-
-1. Download the latest `EdgePad.dmg` from [GitHub Releases](https://github.com/thomaslenh/EdgePad/releases/latest)
-2. Open it and drag **EdgePad** to `/Applications`
-3. Launch EdgePad from `/Applications`
-4. Grant Accessibility permission when prompted (System Settings → Privacy & Security → Accessibility)
-5. **Pre-release note**: while we're still alpha, the app is ad-hoc signed instead of Developer-ID signed. macOS will warn you it's from an "unidentified developer." Run this in Terminal to clear the quarantine flag:
-
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/EdgePad.app
-   ```
-
-### Option 2: Homebrew cask _(coming in v1.0)_
-
-```bash
-brew install --cask thomaslenh/edgepad/edgepad
-```
-
-### Option 3: Build from source
-
-See [Building from source](#building-from-source) below.
-
----
-
-## Usage
-
-1. Launch EdgePad. The `◱` icon appears in your menu bar.
-2. Make sure a video is playing (for scrubbing) or you have a video open in a supported player.
-3. **Drag the top edge of your trackpad horizontally** — the video scrubs backward or forward.
-4. **Drag the left edge vertically** — system volume changes.
-5. **Drag the right edge vertically** — display brightness changes.
-6. **Drag the bottom edge horizontally** — the focused app scrolls horizontally (try a wide Numbers sheet or a zoomed image in Preview).
-
-### Reading mode
-
-Click the menu bar icon and toggle **Reading mode**, or press `⌃⌥⌘R`. The right edge becomes a vertical scroller. Perfect for:
-- Reading a zoomed PDF
-- Panning a magnified Safari page (`⌘+`)
-- Panning around when macOS Accessibility Zoom is active
-
-Toggle back to **Media mode** the same way to restore brightness on the right edge.
-
-### Customization
-
-Click the menu bar icon → **Settings** to change:
-- What action each edge performs
-- Sensitivity per edge
-- How far from the edge the activation zone starts (default 10%)
-- How long to suppress edge gestures after typing (default 300 ms)
-
----
-
-## How it works
-
-EdgePad streams raw per-finger trackpad coordinates by `dlopen`ing Apple's private `MultitouchSupport.framework` and binding the C symbols (`MTDeviceCreateList`, `MTRegisterContactFrameCallback`, `MTDeviceStart`, …) directly. It enumerates every multitouch device on the system and starts only the ones with a real trackpad-sized sensor grid — calling `MTDeviceCreateDefault()` on Apple Silicon picks an auxiliary 60×2 sensor instead of the real trackpad, so we don't use it. **No SPM dependencies — pure Swift + Apple's frameworks.**
-
-The `EdgeDetector` classifies each touch sample. If a contact lands inside one of four edge strips (default 10% inset from each side), it opens a drag. Subsequent samples from the same finger update the drag's position. When the finger lifts, the drag ends.
-
-System state changes go through Apple's own APIs:
-
-| Action | API |
-|---|---|
-| Volume read/write | `CoreAudio` → `kAudioDevicePropertyVolumeScalar` on the default output device |
-| Brightness read/write | Private `DisplayServices.framework` via `dlopen` — same entry point macOS System Settings uses |
-| Volume / brightness HUD | Private `OSD.framework` → `[OSDManager showImage:onDisplayID:…filledChiclets:totalChiclets:locked:]`. We do **not** draw our own HUD for these — we ask macOS to show its real one, so what you see is pixel-identical to pressing F1/F2 or F11/F12. |
-| Video scrub | `CGEvent` posting `←` and `→` keys to the focused app |
-| Horizontal / vertical scroll | `CGEvent` scroll wheel events, pixel units, posted to the focused app |
-
-For scrub, where macOS has no native HUD, we draw a small custom borderless `NSWindow` overlay (click-through, auto-hides after 0.6 s). Scroll has no overlay — the page moving under the cursor is the feedback.
-
----
-
-## Building from source
-
-### Prerequisites
-
-- **macOS 13+**
-- **Swift 6.0+** (ships with Xcode 16+, or install standalone toolchain)
-- **Xcode Command Line Tools** — `xcode-select --install`
-
-### Build
+There is no packaged DMG or Homebrew cask in this repository right now. Build the app from source:
 
 ```bash
 git clone https://github.com/thomaslenh/EdgePad.git
 cd EdgePad
-./build.sh              # produces build/EdgePad.app
-./build.sh run          # build + launch
+./build.sh
 ```
 
-What `build.sh` does:
+The build script creates:
 
-1. Runs `swift build -c release` (no external dependencies to fetch)
-2. Copies the binary into `build/EdgePad.app/Contents/MacOS/EdgePad`
-3. Writes `Info.plist`
-4. Ad-hoc signs (`codesign --force --sign -`)
+```text
+build/EdgePad.app
+```
 
-You can also use Xcode: `open Package.swift` → run with `⌘R`. SPM targets open as Xcode workspaces on Xcode 16+.
+To build and launch in one step:
 
-### Run tests
+```bash
+./build.sh run
+```
+
+For foreground development logs:
+
+```bash
+./build.sh dev
+```
+
+On first launch, grant Accessibility permission in:
+
+```text
+System Settings -> Privacy & Security -> Accessibility
+```
+
+If macOS blocks the locally built app because it is ad-hoc signed, remove the quarantine flag after building:
+
+```bash
+xattr -dr com.apple.quarantine build/EdgePad.app
+```
+
+Optional: run `scripts/codesign/setup_local.sh` once on macOS to create a local development signing identity used by `build.sh`.
+
+## Usage
+
+1. Launch `build/EdgePad.app`.
+2. Open the EdgePad menu-bar item.
+3. Choose `Auto`, `Media`, or `Reading`.
+4. Adjust sensitivity or edge-zone size if the default 10% edge strip feels too narrow or too wide.
+5. Drag along a trackpad edge.
+
+Use **Media** when you want fixed media controls: top scrub, left volume, right brightness. Use **Reading** when you are working with zoomed pages, PDFs, wide documents, timelines, or canvases and want right-edge vertical scroll plus bottom-edge horizontal scroll. Use **Auto** when you want EdgePad to switch between those behaviors based on context.
+
+## How It Works
+
+EdgePad is organized around a small input pipeline:
+
+| Component | Role |
+| --- | --- |
+| `MultitouchCapture` | Loads `MultitouchSupport.framework`, enumerates real trackpad-sized devices, and streams contact samples. |
+| `EdgeDetector` | Classifies edge touches, waits for a dead zone, rejects likely palm/navigation gestures, and emits drag events. |
+| `ContextDetector` | Resolves Auto mode by inspecting the frontmost app, browser media hints, click targets, audio activity, and scrollability. |
+| `MediaController` | Scrubs with accessibility sliders, MediaRemote skip commands, or arrow-key events. |
+| `VolumeController` | Reads and writes output volume through CoreAudio. |
+| `BrightnessController` | Reads and writes display brightness through DisplayServices. |
+| `ScrollController` | Posts horizontal or vertical pixel scroll events with momentum. |
+| `NativeHUD` | Shows the real macOS volume and brightness HUD through OSD.framework. |
+
+The Swift package has one executable target, `EdgePad`, and one test target, `EdgePadTests`.
+
+## Development
+
+Build:
+
+```bash
+./build.sh
+```
+
+Run:
+
+```bash
+./build.sh run
+```
+
+Clean:
+
+```bash
+./build.sh clean
+```
+
+Run tests:
 
 ```bash
 swift test
 ```
 
-Tests cover `EdgeDetector` state transitions and profile assignment. System controllers are smoke-tested only (they need a real output device and accessibility permission).
-
----
-
-- [ ] v0.9 — beta with Developer ID + notarization + Sparkle auto-update
-- [ ] v1.0 — public launch, Show HN, Homebrew cask
-
----
+The current tests focus on `EdgeDetector`, which is the pure logic layer for edge classification and drag state transitions. System controllers require real macOS devices and permissions, so they are not covered the same way.
 
 ## Contributing
 
-EdgePad is a personal project. Bug reports are welcome via GitHub issues; please don't open a PR without asking first. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
-
-## FAQ
-
-### Does this work on external Magic Trackpads?
-
-Yes. EdgePad enumerates every multitouch device on the system and reads from any with a real trackpad-sized sensor grid, so external Magic Trackpads work the same as the built-in one.
-
-### Does it work with a mouse?
-
-No — EdgePad only reads from multitouch trackpad devices. Mice don't have edges.
-
-### Will Apple remove the private MultitouchSupport framework?
-
-It has been part of macOS since at least 10.6 and the C ABI hasn't changed in roughly 15 years. Apple has patented reconfigurable illuminated trackpads (November 2024), which suggests they're going _deeper_ into trackpad hardware, not shallower. If a future macOS does change the layout, our `dlopen` bindings in `MultitouchCapture.swift` are ~80 lines and easy to update.
-
-### Why can't this be on the Mac App Store?
-
-The Mac App Store requires app sandboxing. App sandboxing prevents access to the private `MultitouchSupport.framework`. No private framework = no touch coordinates = no EdgePad.
-
-### Is this safe? You're using private APIs.
-
-The private APIs EdgePad touches are read-only observation (`MultitouchSupport`), a brightness setter that Apple's own System Settings uses (`DisplayServices`), and a HUD presenter that the OS itself uses for the F-key shortcuts (`OSD.framework`). We never modify kernel state, never touch IOKit directly, never patch system binaries. The worst case if a future macOS breaks them is that the app stops working gracefully.
-
-Read the code: it's pure Swift, MIT licensed, no binary blobs, no SPM dependencies, no network calls, no telemetry unless you turn it on.
-
-### Will you accept donations / sponsors?
-
-Yes — once there's an app worth donating to. For now, star the repo.
-
----
+EdgePad is a personal project. Bug reports are welcome through GitHub issues, but pull requests should start with an issue first. See [CONTRIBUTING.md](CONTRIBUTING.md) for the project boundaries and expectations.
 
 ## License
 
