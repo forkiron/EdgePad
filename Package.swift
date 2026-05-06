@@ -20,7 +20,6 @@ let package = Package(
         .executableTarget(
             name: "EdgePad",
             path: "Sources",
-            exclude: ["CMediaRemote"],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
             ]
