@@ -3,7 +3,11 @@
   EdgePad
   <br>
 </h1>
-
+<br>
+<p align="center">
+<img align="center" height="500" alt="content" src="https://github.com/user-attachments/assets/e74af6e3-916d-4c7a-8d0e-90c4c390298b" />
+</p>
+<br>
 <p align="center">
   <strong>Trackpad-edge controls for macOS.</strong>
   <br>
