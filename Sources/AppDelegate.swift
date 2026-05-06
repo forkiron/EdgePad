@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
     private var activePreset: EdgeProfilePreset = .auto
     private var activeDragAction: EdgeAction = .disabled
     private var savedCursorPosition: CGPoint?
+    private var isEnabled = true
 
     // Global key monitor for typing suppression
     private var keyMonitor: Any?
@@ -148,9 +149,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     private func refreshStatusIcon() {
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "hand.point.up.braille", accessibilityDescription: "EdgePad")
-        button.image?.isTemplate = true
-        button.toolTip = "EdgePad — \(activePreset.displayName)"
+        if let custom = Self.loadMenuBarTemplateImage() {
+            button.image = custom
+        } else {
+            button.image = NSImage(systemSymbolName: "hand.point.up.braille", accessibilityDescription: "EdgePad")
+            button.image?.isTemplate = true
+        }
+        button.toolTip = isEnabled ? "EdgePad — \(activePreset.displayName)" : "EdgePad — Disabled"
+        button.appearsDisabled = !isEnabled
+    }
+
+    /// PNG built from `edgepad.png` in the app bundle (`MenuBarTemplate.png`).
+    /// Size is forced so AppKit scales it to fit the menu bar height regardless
+    /// of the source PNG's pixel dimensions — without this, NSImage reports its
+    /// size as the raw pixel count and the icon spills out of the status bar.
+    private static func loadMenuBarTemplateImage() -> NSImage? {
+        guard let url = Bundle.main.url(forResource: "MenuBarTemplate", withExtension: "png") else {
+            return nil
+        }
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = true
+        image.accessibilityDescription = "EdgePad"
+        return image
     }
 
     private var sensitivityMultiplier: Float = 1.0
@@ -287,6 +308,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
         menu.addItem(.separator())
 
+        let toggle = NSMenuItem(
+            title: isEnabled ? "Disable EdgePad" : "Enable EdgePad",
+            action: #selector(toggleEnabled),
+            keyEquivalent: ""
+        )
+        toggle.target = self
+        menu.addItem(toggle)
+
         let quit = NSMenuItem(title: "Quit EdgePad", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -321,6 +350,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func toggleEnabled() {
+        isEnabled.toggle()
+        if isEnabled {
+            capture.start(routingTo: detector)
+            NSLog("[APP] EdgePad ENABLED")
+        } else {
+            // If a drag is in flight, close it cleanly before stopping
+            // capture so we don't leak a hidden cursor or stuck mouseDown.
+            media.endScrub()
+            scroll.endGesture()
+            activeDragAction = .disabled
+            endCursorLock()
+            capture.stop()
+            NSLog("[APP] EdgePad DISABLED")
+        }
+        refreshStatusIcon()
+        refreshMenu()
     }
 
     // MARK: - Global event monitors
@@ -426,7 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             } else {
                 media.arm(mode: .arrowKeys)
             }
-            overlay.showPulse(kind: .scrub, direction: 0)
+            // overlay.showPulse(kind: .scrub, direction: 0)
         case .scrollHorizontal, .scrollVertical:
             scroll.beginGesture()
         case .disabled:
@@ -463,7 +511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EdgeDetectorDelegate {
             NativeHUD.showBrightness(new)
         case .mediaScrub:
             media.handleScrubDelta(event.delta)
-            overlay.showPulse(kind: .scrub, direction: event.delta >= 0 ? 1 : -1)
+            // overlay.showPulse(kind: .scrub, direction: event.delta >= 0 ? 1 : -1)
         case .scrollHorizontal:
             scroll.handleHorizontalEdgeDelta(event.delta)
         case .scrollVertical:

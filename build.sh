@@ -51,6 +51,11 @@ chmod +x "$MACOS/$APP_NAME"
 
 cp Resources/Info.plist "$CONTENTS/Info.plist"
 
+echo "▸ App icon…"
+python3 "$(dirname "$0")/scripts/generate_app_icon.py"
+cp Resources/AppIcon.icns "$RES/AppIcon.icns"
+cp Resources/MenuBarTemplate.png "$RES/MenuBarTemplate.png"
+
 CERT_NAME="EdgePad Local Dev"
 if security find-certificate -c "$CERT_NAME" >/dev/null 2>&1; then
     echo "▸ Signing with '$CERT_NAME'…"

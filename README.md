@@ -188,6 +188,10 @@ Clean:
 
 Pull requests are welcome. For setup steps, review expectations, and project boundaries, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Acknowledgements
+
+EdgePad reads raw trackpad contacts via `MultitouchSupport.framework`, an undocumented Apple private framework. The API surface used here — `MTDeviceCreateList`, `MTRegisterContactFrameCallback`, the contact-sample struct layout, and the family-ID heuristics that pick the real trackpad over auxiliary sensors — comes from years of community reverse-engineering. Thanks to everyone who has published findings about it.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
