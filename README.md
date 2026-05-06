@@ -153,7 +153,7 @@ The current tests focus on `EdgeDetector`, which is the pure logic layer for edg
 
 ## Contributing
 
-EdgePad is a personal project. Bug reports are welcome through GitHub issues, but pull requests should start with an issue first. See [CONTRIBUTING.md](CONTRIBUTING.md) for the project boundaries and expectations.
+Pull requests are welcome. For setup steps, review expectations, and project boundaries, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
