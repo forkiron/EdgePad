@@ -33,7 +33,7 @@ Auto mode is the default behavior in the current app. It uses the frontmost app,
 
 ## Features
 
-- **Top-edge media scrubbing** - uses an accessibility slider when one is available, MediaRemote skip commands for Now Playing sources, and arrow-key fallback for players that use keyboard seeking.
+- **Top-edge media scrubbing** - works wherever the focused player binds left/right arrow keys to small playhead seeks (typically 5 or 10 seconds per press): YouTube, Vimeo, Twitch, embedded HTML5 video on news/blog sites, IINA, VLC, QuickTime Player, plus chat apps like Discord, Slack, Microsoft Teams, Telegram, and WhatsApp when audio is actively playing. Players that don't bind arrow-key seek won't respond — EdgePad is sending arrow keypresses, not custom commands. For Apple Music / Podcasts / Apple TV / Spotify (which ignore arrow keys), it falls back to MediaRemote skip-15 commands; an accessibility slider drag is used on top when the page exposes one.
 - **Left-edge volume control** - reads and writes the default output device through CoreAudio.
 - **Right-edge brightness control** - uses macOS DisplayServices at runtime for built-in display brightness.
 - **Reading mode** - swaps the right edge from brightness to vertical scrolling and enables bottom-edge horizontal scrolling.
