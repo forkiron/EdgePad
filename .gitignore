@@ -30,5 +30,5 @@ xcuserdata/
 # Logs
 *.log
 
-# Claude Code local overrides
-.claude/settings.local.json
+# Claude Code local files (not committed)
+.claude/

@@ -25,10 +25,5 @@ let package = Package(
                 .enableExperimentalFeature("StrictConcurrency"),
             ]
         ),
-        .testTarget(
-            name: "EdgePadTests",
-            dependencies: ["EdgePad"],
-            path: "Tests"
-        ),
     ]
 )

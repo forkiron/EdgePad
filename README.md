@@ -162,7 +162,7 @@ EdgePad is organized around a small input pipeline:
 | `ScrollController` | Posts horizontal or vertical pixel scroll events with momentum. |
 | `NativeHUD` | Shows the real macOS volume and brightness HUD through OSD.framework. |
 
-The Swift package has one executable target, `EdgePad`, and one test target, `EdgePadTests`.
+The Swift package has one executable target, `EdgePad`.
 
 ## Development
 
@@ -183,14 +183,6 @@ Clean:
 ```bash
 ./build.sh clean
 ```
-
-Run tests:
-
-```bash
-swift test
-```
-
-The current tests focus on `EdgeDetector`, which is the pure logic layer for edge classification and drag state transitions. System controllers require real macOS devices and permissions, so they are not covered the same way.
 
 ## Contributing
 

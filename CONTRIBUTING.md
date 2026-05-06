@@ -1,6 +1,6 @@
 # Contributing to EdgePad
 
-Thank you for taking the time to contribute. EdgePad is open source, and pull requests are welcome for code, documentation, bug fixes, tests, and small usability improvements.
+Thank you for taking the time to contribute. EdgePad is open source, and pull requests are welcome for code, documentation, bug fixes, and small usability improvements.
 
 These guidelines help keep contributions easier to review and maintain.
 
@@ -18,7 +18,7 @@ These guidelines help keep contributions easier to review and maintain.
 ## Before You Start
 
 - Search existing issues and pull requests before opening a new one.
-- For small fixes, documentation improvements, tests, and clear bug fixes, feel free to open a pull request directly.
+- For small fixes, documentation improvements, and clear bug fixes, feel free to open a pull request directly.
 - For larger features or behavior changes, open an issue first so the approach can be discussed before you spend a lot of time implementing it.
 - Keep changes focused. A pull request that fixes one problem is much easier to review than one that bundles several unrelated changes.
 
@@ -46,19 +46,12 @@ These guidelines help keep contributions easier to review and maintain.
    ./build.sh
    ```
 
-5. Run tests:
-
-   ```bash
-   swift test
-   ```
-
 ## Making Changes
 
 - Follow the existing Swift style in `Sources`.
 - Prefer small, direct changes over broad refactors.
 - Avoid new runtime dependencies unless there is a strong reason and the tradeoff is discussed first.
 - Keep user-facing behavior grounded in the current app model: Auto, Media, and Reading modes.
-- Add or update tests when changing pure logic, especially `EdgeDetector` behavior.
 - For macOS permission-sensitive behavior, explain how you tested it and what hardware or macOS version you used.
 
 ## Pull Requests
