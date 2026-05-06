@@ -25,6 +25,20 @@ final class ContextDetector: @unchecked Sendable {
         "com.brave.Browser", "com.microsoft.edgemac", "com.operasoftware.Opera",
     ]
 
+    /// Electron-based chat apps that frequently embed playable video
+    /// (Discord attachments, Slack media uploads, Teams recordings, Telegram
+    /// / WhatsApp messages). Treated the same as `browserApps`: only counts
+    /// as media context when audio is actively playing, so chat scrolling
+    /// (right / bottom edges) keeps working when no video is on screen.
+    private static let chatApps: Set<String> = [
+        "com.hnc.Discord",
+        "com.tinyspeck.slackmacgap",
+        "com.microsoft.teams2",
+        "com.microsoft.teams",
+        "ru.keepcoder.Telegram",
+        "net.whatsapp.WhatsApp",
+    ]
+
     private static let videoSites = [
         "YouTube", "Netflix", "Twitch", "Hulu", "Disney+", "Disney Plus",
         "Prime Video", "Vimeo", "HBO", "Peacock", "Paramount+",
@@ -166,14 +180,16 @@ final class ContextDetector: @unchecked Sendable {
             return true
         }
 
-        // Browser frontmost + something is making sound right now → assume
-        // the user is on a video. Catches X, LinkedIn, embedded players,
-        // random blogs etc. that wrap media in JS and publish nothing
+        // Browser or chat-app frontmost + something is making sound right
+        // now → assume the user is on a video. Catches X, LinkedIn, BBC,
+        // CBC, embedded players, Discord / Slack / Teams video attachments,
+        // and anything else that wraps media in JS and publishes nothing
         // useful through AX. Arrow keys flow to whatever currently has
         // keyboard focus — which, after the user clicks the video to
         // start it, is the video player itself.
-        if Self.browserApps.contains(bid) && AudioActivity.isPlaying() {
-            NSLog("[CTX] browser \(bid) + audio playing → media")
+        if (Self.browserApps.contains(bid) || Self.chatApps.contains(bid))
+            && AudioActivity.isPlaying() {
+            NSLog("[CTX] \(bid) + audio playing → media")
             return true
         }
 
