@@ -56,10 +56,31 @@ EdgePad uses private Apple frameworks for raw multitouch capture, brightness, Me
 
 ## Installation
 
-There is no packaged DMG or Homebrew cask in this repository right now. Build the app from source:
+### Option 1: Download the prebuilt app
+
+1. Download the latest `EdgePad-x.y.z.zip` from [GitHub Releases](https://github.com/forkiron/EdgePad/releases/latest).
+2. Unzip the archive and move `EdgePad.app` into `/Applications`.
+3. On first launch, right-click `EdgePad.app` and choose **Open**, then confirm in the dialog. macOS requires this only once.
+4. Grant Accessibility permission when prompted, in `System Settings -> Privacy & Security -> Accessibility`.
+
+#### About the "unidentified developer" warning
+
+The first launch shows a Gatekeeper dialog because the released binary is currently ad-hoc signed rather than signed with an Apple Developer ID. This is a signing status, not a malware indicator.
+
+- EdgePad is open source (MIT). The full source tree of every release is in this repository, and you can rebuild the same binary yourself with `./build.sh`.
+- The current source tree contains no telemetry, analytics, or auto-update network calls.
+- Future versions are expected to be Developer ID signed and notarized by Apple, at which point the warning will not appear.
+
+If you prefer to skip the right-click step on subsequent reinstalls, you can clear the quarantine flag once:
 
 ```bash
-git clone https://github.com/thomaslenh/EdgePad.git
+xattr -dr com.apple.quarantine /Applications/EdgePad.app
+```
+
+### Option 2: Build from source
+
+```bash
+git clone https://github.com/forkiron/EdgePad.git
 cd EdgePad
 ./build.sh
 ```
@@ -93,6 +114,14 @@ If macOS blocks the locally built app because it is ad-hoc signed, remove the qu
 ```bash
 xattr -dr com.apple.quarantine build/EdgePad.app
 ```
+
+To produce a distributable zip for upload to a release, run:
+
+```bash
+./package.sh
+```
+
+This produces `build/EdgePad-<version>.zip`, ad-hoc signed, ready to attach to a GitHub release.
 
 Optional: run `scripts/codesign/setup_local.sh` once on macOS to create a local development signing identity used by `build.sh`.
 
