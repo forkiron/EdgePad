@@ -56,28 +56,43 @@ EdgePad uses private Apple frameworks for raw multitouch capture, brightness, Me
 
 ## Installation
 
-### Option 1: Download the prebuilt app
+### Option 1 (recommended): Install via curl
 
-1. Download the latest `EdgePad-x.y.z.zip` from [GitHub Releases](https://github.com/forkiron/EdgePad/releases/latest).
-2. Unzip the archive and move `EdgePad.app` into `/Applications`.
-3. On first launch, right-click `EdgePad.app` and choose **Open**, then confirm in the dialog. macOS requires this only once.
-4. Grant Accessibility permission when prompted, in `System Settings -> Privacy & Security -> Accessibility`.
+```bash
+curl -fsSL https://raw.githubusercontent.com/forkiron/EdgePad/main/install.sh | bash
+```
 
-#### About the "unidentified developer" warning
+This downloads the latest release, installs it to `/Applications`, and launches it. **No Gatekeeper warning, no first-launch dance** — see "About the install methods" below for why.
 
-The first launch shows a Gatekeeper dialog because the released binary is currently ad-hoc signed rather than signed with an Apple Developer ID. This is a signing status, not a malware indicator.
+After EdgePad opens, grant Accessibility permission when prompted, in `System Settings -> Privacy & Security -> Accessibility`.
 
-- EdgePad is open source (MIT). The full source tree of every release is in this repository, and you can rebuild the same binary yourself with `./build.sh`.
-- The current source tree contains no telemetry, analytics, or auto-update network calls.
-- Future versions are expected to be Developer ID signed and notarized by Apple, at which point the warning will not appear.
+### Option 2: Download the .zip directly
 
-If you prefer to skip the right-click step on subsequent reinstalls, you can clear the quarantine flag once:
+Download `EdgePad-x.y.z.zip` from [GitHub Releases](https://github.com/forkiron/EdgePad/releases/latest), unzip it, and move `EdgePad.app` into `/Applications`.
+
+> ⚠ **Browser-downloaded apps trigger a Gatekeeper warning.** macOS marks every browser download as quarantined, and because the released binary is ad-hoc signed (not Developer ID signed), the warning will block the app from opening on first launch. You'll need to bypass it once.
+
+To bypass after a browser download, run:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/EdgePad.app
 ```
 
-### Option 2: Build from source
+Or via System Settings: open `System Settings -> Privacy & Security`, scroll to the banner that says *"EdgePad was blocked from use…"*, click **Open Anyway**, then re-launch and click **Open** in the new dialog.
+
+The curl install in Option 1 avoids this entirely.
+
+### About the install methods
+
+The Gatekeeper warning is triggered by an extended attribute (`com.apple.quarantine`) that browsers attach to downloads. `curl`, `wget`, and `git` don't set it, so an app fetched via the install script bypasses Gatekeeper without any signing change. This is the same mechanism Homebrew, Rust (`rustup`), Bun, and Deno use for their installers.
+
+The released binary is currently ad-hoc signed rather than signed with an Apple Developer ID. This is a signing status, not a malware indicator:
+
+- EdgePad is open source (MIT). The full source tree of every release is in this repository, and you can rebuild the same binary yourself with `./build.sh`.
+- The current source tree contains no telemetry, analytics, or auto-update network calls.
+- Future versions are expected to be Developer ID signed and notarized by Apple, at which point both install paths will be warning-free.
+
+### Option 3: Build from source
 
 ```bash
 git clone https://github.com/forkiron/EdgePad.git
